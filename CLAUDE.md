@@ -1,0 +1,87 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Commands
+
+```bash
+npm run dev      # Start dev server
+npm run build    # Production build (also serves as type-check — no separate tsc command)
+npm run lint     # ESLint
+```
+
+No test framework is configured.
+
+## Project Overview
+
+Sri Lankan microfinance loan management system ("DIRIYALANKA") built with **Next.js 16 App Router** + **Supabase** (PostgreSQL + Auth + Storage). Two roles: **admin** (desktop sidebar layout) and **staff** (mobile-first bottom-nav layout). Staff collect weekly loan payments in the field with GPS tracking.
+
+### Loan Plans
+
+| Plan   | New Member Balance | Returning Balance | Weekly Payment |
+|--------|-------------------|-------------------|----------------|
+| 5,000  | 6,000             | 6,000             | 600            |
+| 10,000 | 13,000            | 12,500            | 1,000          |
+| 20,000 | 26,000            | 25,000            | 2,000          |
+
+Working days: Monday–Thursday only. Each center is assigned to exactly one staff member per day.
+
+## Architecture
+
+### Supabase Clients — CRITICAL
+
+Three client factories in `src/lib/supabase/`:
+
+- **`client.ts`** — Browser client (`createBrowserClient` from `@supabase/ssr`). Used in `'use client'` components.
+- **`server.ts` → `createClient()`** — Server client with cookie-based auth. Used in Server Components and Server Actions.
+- **`server.ts` → `createAdminClient()`** — Uses `createClient` from `@supabase/supabase-js` (NOT `createServerClient` from `@supabase/ssr`) with `SUPABASE_SERVICE_ROLE_KEY`. **This is the only way to bypass RLS.** Previous bug: using `createServerClient` with service_role key does NOT bypass RLS — mutations silently fail.
+
+When a Server Action needs to both authenticate the user AND perform privileged writes (e.g., updating `loans` table), use `createClient()` for auth checks and dynamically import `createAdminClient` for the privileged operation. See `src/app/actions/payments.ts` for the pattern.
+
+### Middleware
+
+`src/proxy.ts` handles auth redirects (login/role-based routing). Despite the filename, it's the Next.js middleware — exported with `config.matcher`.
+
+### Server Actions (`src/app/actions/`)
+
+All mutations go through server actions with Zod validation. Key actions:
+- `payments.ts` — Records payment, updates loan balance via adminClient, rolls back payment if balance update fails.
+- `reports.ts` — Validates all center members have payment records before allowing daily report submission.
+- `loans.ts` — Creates loans, auto-detects first-loan vs returning member for balance calculation.
+
+### Date/Day Overrides (TEST MODE)
+
+**Remove before production:**
+- `src/types/index.ts` → `TODAY_DAY_OF_WEEK()` — hardcoded to return `'monday'`
+- `src/lib/utils.ts` → `getTodayString()` — hardcoded to return `'2026-04-13'`
+
+These overrides affect the entire system (which centers show, payment dates, report validation).
+
+### Alert System
+
+**Staff center page** (`src/app/staff/centers/[id]/page.tsx`): 4-week lookback with net outstanding shortfall calculation. N/P adds full weekly to `netOwed`, partial payments add shortfall amount, overpayments reduce `netOwed`. Badge only shows if `netOwed > 0`. The `prevShortfall` amount is passed via URL params to the payment page.
+
+**Admin members page** (`src/app/admin/members/page.tsx`): Uses most-recent-payment-per-loan approach (last 600 payments, no date filter). Critical = last 3 consecutive payments all N/P or shortfall.
+
+### RLS Policies
+
+Defined in `supabase/migrations/002_rls_policies.sql`. Key constraints:
+- Staff can only see centers assigned to them **for the current day** (based on `Asia/Colombo` timezone)
+- Staff can only see members who have **active loans** in their today-assigned centers
+- Staff can only see **active** loans (not completed ones) — completed-today loans require adminClient to fetch
+- Loan updates require admin role — hence `createAdminClient()` in payment action
+
+### PDF Reports
+
+`src/lib/pdf-report.ts` generates styled PDFs using jsPDF + jspdf-autotable. Three report types: daily collection (staff), members list, payments list.
+
+### Excel Import
+
+`src/app/admin/import/page.tsx` + `src/lib/excel-parser.ts` — Parses Excel files with flexible column matching and date parsing (handles Sri Lankan DD/MM/YYYY format, Excel serial dates, etc.). Auto-creates centers and members if they don't exist.
+
+## Pending Credits
+
+- Soma Wickramasinghe (MBR-017): LKR 600 credit to apply on next loan
+- Sumana Karunarathne (MBR-024): LKR 800 credit to apply on next loan
+
+These are overpayments from a historical balance fix. When creating their next loans, reduce `loan_balance` by the credit amount via SQL.
