@@ -14,7 +14,7 @@ interface MemberRow {
   full_name: string;
   created_at: string;
   center: { id: string; name: string; center_number: number } | null;
-  loans: { id: string; loan_plan: number; loan_balance: number; status: string; issued_date: string }[];
+  loans: { id: string; loan_plan: number | null; principal: number | null; loan_balance: number; status: string; issued_date: string }[];
 }
 
 const COLORS = ['bg-blue-500','bg-violet-500','bg-emerald-500','bg-orange-500','bg-pink-500','bg-cyan-500','bg-rose-500','bg-teal-500'];
@@ -32,42 +32,38 @@ export default function MembersPage() {
   useEffect(() => {
     const supabase = createClient();
 
-    Promise.all([
-      supabase
-        .from('members')
-        .select(`id, member_number, full_name, created_at, center:centers(id, name, center_number), loans(id, loan_plan, loan_balance, status, issued_date)`)
-        .order('member_number'),
-      supabase
-        .from('payments')
-        .select('loan_id, is_not_paid, shortfall, payment_date')
-        .order('payment_date', { ascending: false })
-        .limit(600),
-      supabase
-        .from('staff_center_assignments')
-        .select('center_id, day_of_week'),
-    ]).then(([{ data, error }, { data: recentPayments }, { data: assignments }]) => {
-      if (error) toast.error('Failed to load members.');
-      setMembers((data ?? []) as unknown as MemberRow[]);
-
-      // Alerts: use the most recent payment per loan (any date)
-      // If most recent was N/P or shortfall → show alert; if most recent was full payment → no alert
-      const alertMap = new Map<string, 'np' | 'shortfall'>();
-      const historyByLoan = new Map<string, { is_not_paid: boolean; shortfall: number }[]>();
-      for (const p of (recentPayments ?? []) as { loan_id: string; is_not_paid: boolean; shortfall: number }[]) {
-        // Alert: first (most recent) occurrence per loan
-        if (!alertMap.has(p.loan_id)) {
-          if (p.is_not_paid) alertMap.set(p.loan_id, 'np');
-          else if (p.shortfall > 0) alertMap.set(p.loan_id, 'shortfall');
-          else alertMap.set(p.loan_id, 'ok' as 'np'); // most recent was clean — no alert
-        }
-        // Critical: collect last 3 per loan
-        if (!historyByLoan.has(p.loan_id)) historyByLoan.set(p.loan_id, []);
-        const arr = historyByLoan.get(p.loan_id)!;
-        if (arr.length < 3) arr.push(p);
+    (async () => {
+      // Paginate members — PostgREST caps a single select at 1000 rows (there are 2,179 members)
+      const allMembers: MemberRow[] = [];
+      const PAGE = 1000;
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await supabase
+          .from('members')
+          .select(`id, member_number, full_name, created_at, center:centers(id, name, center_number), loans(id, loan_plan, principal, loan_balance, status, issued_date)`)
+          .order('member_number')
+          .range(from, from + PAGE - 1);
+        if (error) { toast.error('Failed to load members.'); break; }
+        if (!data || data.length === 0) break;
+        allMembers.push(...(data as unknown as MemberRow[]));
+        if (data.length < PAGE) break;
       }
-      // Remove 'ok' entries (loans whose most recent payment was clean)
-      for (const [loanId, val] of alertMap) {
-        if ((val as string) === 'ok') alertMap.delete(loanId);
+      setMembers(allMembers);
+
+      // Per-loan alert/critical flags computed server-side from EACH active
+      // loan's own most-recent 3 payments (window-function RPC) — correct at
+      // 319k-payment scale, where a global "last 600" covered ~one day.
+      const [{ data: flags }, { data: assignments }] = await Promise.all([
+        supabase.rpc('member_loan_flags'),
+        supabase
+          .from('staff_center_assignments')
+          .select('center_id, day_of_week'),
+      ]);
+
+      const alertMap = new Map<string, 'np' | 'shortfall'>();
+      const critical = new Set<string>();
+      for (const f of (flags ?? []) as { loan_id: string; alert: string | null; critical: boolean }[]) {
+        if (f.alert === 'np' || f.alert === 'shortfall') alertMap.set(f.loan_id, f.alert);
+        if (f.critical) critical.add(f.loan_id);
       }
       setAlertByLoan(alertMap);
 
@@ -79,16 +75,9 @@ export default function MembersPage() {
       }
       setCenterDayMap(cdm);
 
-      // Critical: last 3 consecutive payments all N/P or shortfall
-      const critical = new Set<string>();
-      for (const [loanId, history] of historyByLoan) {
-        if (history.length >= 3 && history.every(p => p.is_not_paid || p.shortfall > 0)) {
-          critical.add(loanId);
-        }
-      }
       setCriticalLoanIds(critical);
       setLoading(false);
-    });
+    })();
   }, []);
 
   function getMemberCritical(m: MemberRow): boolean {
@@ -103,6 +92,12 @@ export default function MembersPage() {
       else if (a === 'shortfall') shortfall = true;
     }
     return { np, shortfall };
+  }
+
+  // "Joined" = earliest loan issue date from the sheet (created_at is only the import date)
+  function memberSince(m: MemberRow): string {
+    const dates = m.loans.map(l => l.issued_date).filter(Boolean).sort();
+    return dates[0] ?? m.created_at.split('T')[0];
   }
 
   function getMemberAlert(m: MemberRow): 'np' | 'shortfall' | null {
@@ -167,7 +162,7 @@ export default function MembersPage() {
     const rows = filtered.map((m) => {
       const activeLoans = m.loans.filter(l => l.status === 'active');
       const completedLoans = m.loans.filter(l => l.status === 'completed');
-      const plans = activeLoans.map(l => l.loan_plan === 5000 ? '5K' : l.loan_plan === 10000 ? '10K' : '20K').join(' | ');
+      const plans = activeLoans.map(l => l.principal ? `${Math.round(l.principal / 1000)}K` : '—').join(' | ');
       const issuedDates = activeLoans.map(l => l.issued_date).join(' | ');
       const totalLB = activeLoans.reduce((s, l) => s + l.loan_balance, 0);
       return [
@@ -180,7 +175,7 @@ export default function MembersPage() {
         q(issuedDates || '—'),
         totalLB.toFixed(2),
         completedLoans.length,
-        m.created_at.split('T')[0],
+        memberSince(m),
       ];
     });
 
@@ -198,7 +193,7 @@ export default function MembersPage() {
   function exportPDF() {
     const pdfRows: MemberPDFRow[] = filtered.map((m) => {
       const activeLoans = m.loans.filter(l => l.status === 'active');
-      const plans = activeLoans.map(l => l.loan_plan === 5000 ? '5K' : l.loan_plan === 10000 ? '10K' : '20K').join(', ');
+      const plans = activeLoans.map(l => l.principal ? `${Math.round(l.principal / 1000)}K` : '—').join(', ');
       const totalLB = activeLoans.reduce((s, l) => s + l.loan_balance, 0);
       return {
         member_number: m.member_number,
@@ -206,7 +201,7 @@ export default function MembersPage() {
         center_name: m.center?.name ?? '—',
         active_plans: plans || 'None',
         loan_balance: totalLB,
-        joined: m.created_at.split('T')[0],
+        joined: memberSince(m),
       };
     });
     const filterLabel = statusFilter !== 'all' ? statusFilter : search ? `"${search}"` : undefined;
@@ -433,12 +428,8 @@ export default function MembersPage() {
                                 const loanAlert = alertByLoan.get(loan.id);
                                 return (
                                   <div key={loan.id} className="flex items-center gap-2">
-                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium ${
-                                      loan.loan_plan === 5000 ? 'bg-emerald-50 text-emerald-700' :
-                                      loan.loan_plan === 10000 ? 'bg-blue-50 text-blue-700' :
-                                      'bg-violet-50 text-violet-700'
-                                    }`}>
-                                      {loan.loan_plan === 5000 ? '5K' : loan.loan_plan === 10000 ? '10K' : '20K'}
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium bg-blue-50 text-blue-700">
+                                      {loan.principal ? `${Math.round(loan.principal / 1000)}K` : '—'}
                                     </span>
                                     {loan.issued_date && (
                                       <span className="text-[11px] text-muted-foreground">{loan.issued_date}</span>
@@ -463,7 +454,7 @@ export default function MembersPage() {
                           {totalLB > 0 ? formatCurrency(totalLB) : '—'}
                         </td>
                         <td className="px-5 py-4 text-xs text-muted-foreground whitespace-nowrap">
-                          {formatDate(member.created_at)}
+                          {formatDate(memberSince(member))}
                         </td>
                         <td className="px-5 py-4">
                           <Link

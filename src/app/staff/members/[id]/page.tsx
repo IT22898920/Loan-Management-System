@@ -13,7 +13,7 @@ export default async function StaffMemberProfilePage({ params }: { params: Promi
 
   const { data: member } = await supabase
     .from('members')
-    .select(`*, center:centers(name, center_number), loans(id, loan_plan, loan_balance, weekly_payment, status, issued_date)`)
+    .select(`*, center:centers(name, center_number), loans(id, loan_plan, principal, loan_balance, weekly_payment, status, issued_date)`)
     .eq('id', id)
     .single();
 
@@ -33,7 +33,7 @@ export default async function StaffMemberProfilePage({ params }: { params: Promi
 
   const { data: recentPayments } = await supabase
     .from('payments')
-    .select('*, loan:loans(loan_plan)')
+    .select('*, loan:loans(principal)')
     .in('loan_id', loanIds)
     .gte('payment_date', fourWeeksAgoString)
     .order('payment_date', { ascending: false })
@@ -50,12 +50,6 @@ export default async function StaffMemberProfilePage({ params }: { params: Promi
 
   const totalLoanBalance = activeLoans.reduce((s: number, l: { loan_balance: number }) => s + l.loan_balance, 0);
   const completedCount = (member.loans ?? []).filter((l: { status: string }) => l.status === 'completed').length;
-
-  const PLAN_BADGE: Record<number, string> = {
-    5000:  'bg-emerald-100 text-emerald-700',
-    10000: 'bg-blue-100 text-blue-700',
-    20000: 'bg-purple-100 text-purple-700',
-  };
 
   return (
     <div className="pb-24">
@@ -114,11 +108,11 @@ export default async function StaffMemberProfilePage({ params }: { params: Promi
           <h2 className="font-semibold text-gray-900">Active Loans</h2>
         </div>
         <div className="divide-y divide-gray-50">
-          {activeLoans.map((loan: { id: string; loan_plan: number; loan_balance: number; weekly_payment: number; issued_date: string }) => (
+          {activeLoans.map((loan: { id: string; loan_plan: number | null; principal: number | null; loan_balance: number; weekly_payment: number; issued_date: string }) => (
             <div key={loan.id} className="px-5 py-4">
               <div className="flex items-center justify-between mb-3">
-                <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${PLAN_BADGE[loan.loan_plan] ?? 'bg-gray-100 text-gray-700'}`}>
-                  {loan.loan_plan === 5000 ? '5K Plan' : loan.loan_plan === 10000 ? '10K Plan' : '20K Plan'}
+                <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">
+                  Rs. {(loan.principal ?? loan.loan_balance).toLocaleString()} Loan
                 </span>
                 <span className="text-xs text-muted-foreground">Since {formatDate(loan.issued_date)}</span>
               </div>
@@ -156,9 +150,9 @@ export default async function StaffMemberProfilePage({ params }: { params: Promi
         ) : (
           <div className="divide-y divide-gray-50">
             {recentPayments.map((p) => {
-              const loan = p.loan as { loan_plan: number } | null;
+              const loan = p.loan as { principal: number | null } | null;
               const isToday = p.payment_date === today;
-              const planLabel = loan?.loan_plan === 5000 ? '5K' : loan?.loan_plan === 10000 ? '10K' : '20K';
+              const planLabel = loan?.principal ? `${Math.round(loan.principal / 1000)}K` : '—';
 
               return (
                 <div key={p.id} className={`px-5 py-4 flex items-center justify-between ${isToday ? 'bg-blue-50/50' : ''}`}>

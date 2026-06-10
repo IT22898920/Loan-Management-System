@@ -2,12 +2,15 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { requireAdmin } from '@/lib/auth-guard';
 import { DayOfWeek } from '@/types';
 
 export async function updateStaffAssignmentsAction(
   staffId: string,
   assignments: { centerId: string; day: DayOfWeek }[]
 ) {
+  const auth = await requireAdmin();
+  if (!auth.ok) return { error: auth.error };
   const supabase = await createClient();
 
   // 1. Delete all existing assignments for THIS staff member

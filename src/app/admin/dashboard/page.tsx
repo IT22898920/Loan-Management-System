@@ -20,9 +20,9 @@ export default async function AdminDashboardPage() {
     { count: totalCenters },
     { data: shortfallPayments },
     { data: staffCollection },
-    { data: loanPlanCounts },
+    { data: activeLoanStats },
     { count: completedLoansToday },
-    { data: allPayments },
+    { data: allTimeCollected },
     { data: weeklyPayments },
   ] = await Promise.all([
     supabase.from('loans').select('*', { count: 'exact', head: true }).eq('status', 'active'),
@@ -30,18 +30,16 @@ export default async function AdminDashboardPage() {
     supabase.from('members').select('*', { count: 'exact', head: true }),
     supabase.from('centers').select('*', { count: 'exact', head: true }),
     supabase.from('payments')
-      .select('shortfall, member:members(full_name), loan:loans(loan_plan)')
+      .select('shortfall, member:members(full_name), loan:loans(principal)')
       .gt('shortfall', 0).eq('payment_date', today).limit(8),
     supabase.from('payments')
       .select('amount_paid, is_not_paid, staff:profiles(full_name)')
       .eq('payment_date', today),
-    supabase.from('loans')
-      .select('loan_plan, loan_balance')
-      .eq('status', 'active'),
+    supabase.rpc('active_loan_stats'),
     supabase.from('loans')
       .select('*', { count: 'exact', head: true })
       .eq('status', 'completed'),
-    supabase.from('payments').select('amount_paid, is_not_paid'),
+    supabase.rpc('total_collected'),
     supabase.from('payments').select('amount_paid, is_not_paid, payment_date')
       .gte('payment_date', (() => {
         const d = new Date(today); d.setDate(d.getDate() - 6);
@@ -51,7 +49,9 @@ export default async function AdminDashboardPage() {
   ]);
 
   const todayTotal = (todayPayments ?? []).reduce((s, p) => s + (p.is_not_paid ? 0 : p.amount_paid), 0);
-  const allTimeTotal = (allPayments ?? []).reduce((s, p) => s + (p.is_not_paid ? 0 : p.amount_paid), 0);
+  const allTimeTotal = Number(allTimeCollected ?? 0);
+  // compact LKR (no decimals) for the hero stat cards so big totals fit
+  const lkr = (n: number) => `LKR ${Math.round(n).toLocaleString('en-LK')}`;
   const todayPaidCount = (todayPayments ?? []).filter(p => !p.is_not_paid).length;
   const todayNPCount = (todayPayments ?? []).filter(p => p.is_not_paid).length;
 
@@ -66,13 +66,10 @@ export default async function AdminDashboardPage() {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
 
-  // Loan plan breakdown
-  const planCount = { 5000: 0, 10000: 0, 20000: 0 };
-  let totalOutstanding = 0;
-  for (const l of loanPlanCounts ?? []) {
-    if (l.loan_plan in planCount) planCount[l.loan_plan as keyof typeof planCount]++;
-    totalOutstanding += (l as unknown as { loan_balance: number }).loan_balance ?? 0;
-  }
+  // Active loans by principal size + total outstanding (via SQL fn — avoids the 1000-row cap)
+  const als = (activeLoanStats ?? {}) as { outstanding?: number; small?: number; medium?: number; large?: number };
+  const sizeBuckets = { small: als.small ?? 0, medium: als.medium ?? 0, large: als.large ?? 0 };
+  const totalOutstanding = Number(als.outstanding ?? 0);
 
   // Last 7 days chart data
   const chartData = Array.from({ length: 7 }, (_, i) => {
@@ -103,10 +100,10 @@ export default async function AdminDashboardPage() {
           <p className="text-blue-200 text-sm mt-1">Loan Management System — Admin Panel</p>
 
           {/* Hero stats */}
-          <div className="mt-6 grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+          <div className="mt-6 grid grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-3 [&>div]:min-w-0">
             <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
               <p className="text-blue-200 text-xs font-medium">Today&apos;s Collection</p>
-              <p className="text-2xl md:text-3xl font-bold mt-1">{formatCurrency(todayTotal)}</p>
+              <p className="text-xl xl:text-2xl font-bold mt-1 leading-tight break-words tabular-nums">{lkr(todayTotal)}</p>
               <div className="flex items-center gap-3 mt-2 text-xs text-blue-200">
                 <span className="flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-green-300" />{todayPaidCount} paid</span>
                 <span className="flex items-center gap-1"><XCircle className="h-3 w-3 text-red-300" />{todayNPCount} N/P</span>
@@ -114,27 +111,27 @@ export default async function AdminDashboardPage() {
             </div>
             <div className="bg-white/20 backdrop-blur-sm rounded-2xl p-4 border border-white/30">
               <p className="text-blue-100 text-xs font-medium">Total Collection</p>
-              <p className="text-2xl md:text-3xl font-bold mt-1">{formatCurrency(allTimeTotal)}</p>
+              <p className="text-xl xl:text-2xl font-bold mt-1 leading-tight break-words tabular-nums">{lkr(allTimeTotal)}</p>
               <p className="text-xs text-blue-200 mt-2">All-time repayments</p>
             </div>
             <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
               <p className="text-blue-200 text-xs font-medium">Active Loans</p>
-              <p className="text-2xl md:text-3xl font-bold mt-1">{activeLoans ?? 0}</p>
+              <p className="text-xl xl:text-2xl font-bold mt-1 leading-tight tabular-nums">{activeLoans ?? 0}</p>
               <p className="text-xs text-blue-200 mt-2">{(completedLoansToday ?? 0)} completed total</p>
             </div>
             <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
               <p className="text-blue-200 text-xs font-medium">Total Members</p>
-              <p className="text-2xl md:text-3xl font-bold mt-1">{totalMembers ?? 0}</p>
+              <p className="text-xl xl:text-2xl font-bold mt-1 leading-tight tabular-nums">{totalMembers ?? 0}</p>
               <p className="text-xs text-blue-200 mt-2">Registered borrowers</p>
             </div>
             <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
               <p className="text-blue-200 text-xs font-medium">Centers</p>
-              <p className="text-2xl md:text-3xl font-bold mt-1">{totalCenters ?? 0}</p>
+              <p className="text-xl xl:text-2xl font-bold mt-1 leading-tight tabular-nums">{totalCenters ?? 0}</p>
               <p className="text-xs text-blue-200 mt-2">Active centers</p>
             </div>
             <div className="bg-amber-500/20 backdrop-blur-sm rounded-2xl p-4 border border-amber-300/30">
               <p className="text-amber-100 text-xs font-medium">Outstanding</p>
-              <p className="text-2xl md:text-3xl font-bold mt-1">{formatCurrency(totalOutstanding)}</p>
+              <p className="text-xl xl:text-2xl font-bold mt-1 leading-tight break-words tabular-nums">{lkr(totalOutstanding)}</p>
               <p className="text-xs text-amber-200 mt-2">Total to collect</p>
             </div>
           </div>
@@ -228,16 +225,16 @@ export default async function AdminDashboardPage() {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
               <div>
-                <h2 className="font-semibold text-gray-900">Loan Plans</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">Active loans by type</p>
+                <h2 className="font-semibold text-gray-900">Loan Sizes</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">Active loans by principal</p>
               </div>
               <CreditCard className="h-4 w-4 text-muted-foreground" />
             </div>
             <div className="p-5 space-y-4">
               {[
-                { label: '5K Plan', count: planCount[5000], weekly: 'Rs. 600/wk', color: 'bg-emerald-500', light: 'bg-emerald-50', text: 'text-emerald-700' },
-                { label: '10K Plan', count: planCount[10000], weekly: 'Rs. 1,000/wk', color: 'bg-blue-500', light: 'bg-blue-50', text: 'text-blue-700' },
-                { label: '20K Plan', count: planCount[20000], weekly: 'Rs. 2,000/wk', color: 'bg-violet-500', light: 'bg-violet-50', text: 'text-violet-700' },
+                { label: '≤ Rs. 10K', count: sizeBuckets.small, weekly: 'Small loans', color: 'bg-emerald-500', light: 'bg-emerald-50', text: 'text-emerald-700' },
+                { label: 'Rs. 10K – 25K', count: sizeBuckets.medium, weekly: 'Mid-size loans', color: 'bg-blue-500', light: 'bg-blue-50', text: 'text-blue-700' },
+                { label: '> Rs. 25K', count: sizeBuckets.large, weekly: 'Large loans', color: 'bg-violet-500', light: 'bg-violet-50', text: 'text-violet-700' },
               ].map(({ label, count, weekly, color, light, text }) => (
                 <div key={label} className={`${light} rounded-xl p-4 flex items-center justify-between`}>
                   <div>
@@ -283,8 +280,8 @@ export default async function AdminDashboardPage() {
             <div className="divide-y divide-gray-50">
               {shortfallPayments.map((p, i) => {
                 const member = p.member as unknown as { full_name: string } | null;
-                const loan = p.loan as unknown as { loan_plan: number } | null;
-                const planLabel = loan?.loan_plan === 5000 ? '5K' : loan?.loan_plan === 10000 ? '10K' : '20K';
+                const loan = p.loan as unknown as { principal: number | null } | null;
+                const planLabel = loan?.principal ? `${Math.round(loan.principal / 1000)}K` : '—';
                 return (
                   <div key={i} className="px-5 py-3 flex items-center justify-between hover:bg-gray-50/50">
                     <div className="flex items-center gap-3">

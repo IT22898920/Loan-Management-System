@@ -17,6 +17,16 @@ interface ReportRow {
   staff: { full_name: string; email: string } | null;
 }
 
+// Monday of the week containing dateStr ('YYYY-MM-DD'), computed entirely in
+// UTC so it never drifts a day based on the host timezone.
+function weekStartMonday(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  const dow = d.getUTCDay();
+  const daysFromMon = dow === 0 ? 6 : dow - 1;
+  d.setUTCDate(d.getUTCDate() - daysFromMon);
+  return d.toISOString().split('T')[0];
+}
+
 export default function AdminReportsPage() {
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,7 +37,7 @@ export default function AdminReportsPage() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [viewingReport, setViewingReport] = useState<ReportRow | null>(null);
   const [viewCenters, setViewCenters] = useState<ReportCenter[]>([]);
-  const [viewIssuedLoans, setViewIssuedLoans] = useState<{ id: string; loan_plan: number; member: { full_name: string; member_number: string; center: { name: string; center_number: number } | null } | null }[]>([]);
+  const [viewIssuedLoans, setViewIssuedLoans] = useState<{ id: string; principal: number | null; member: { full_name: string; member_number: string; center: { name: string; center_number: number } | null } | null }[]>([]);
   const [viewLoading, setViewLoading] = useState(false);
 
   const loadReports = () => {
@@ -37,7 +47,7 @@ export default function AdminReportsPage() {
       .from('daily_reports')
       .select(`id, report_date, cash_issued, loan_issued, submitted_at, staff_id, staff:profiles(full_name, email)`)
       .order('report_date', { ascending: false })
-      .limit(200)
+      .limit(1000)
       .then(({ data, error }) => {
         if (error) toast.error('Failed to load reports.');
         setReports((data ?? []) as unknown as ReportRow[]);
@@ -84,7 +94,7 @@ export default function AdminReportsPage() {
       // Get today's issued loans per center
       const { data: issuedLoans } = await supabase
         .from('loans')
-        .select('loan_plan, member:members!inner(center_id)')
+        .select('principal, member:members!inner(center_id)')
         .eq('created_by', report.staff_id)
         .eq('issued_date', report.report_date);
 
@@ -101,9 +111,9 @@ export default function AdminReportsPage() {
         if (!p.is_not_paid) centerMap.get(c.id)!.collected += p.amount_paid;
       }
 
-      for (const l of (issuedLoans ?? []) as unknown as { loan_plan: number; member: { center_id: string } }[]) {
+      for (const l of (issuedLoans ?? []) as unknown as { principal: number | null; member: { center_id: string } }[]) {
         const existing = [...centerMap.values()].find(c => c.id === l.member.center_id);
-        if (existing) existing.loan_issued += l.loan_plan;
+        if (existing) existing.loan_issued += (l.principal ?? 0);
       }
 
       // Get expected collection per center (active loans on that date)
@@ -114,15 +124,10 @@ export default function AdminReportsPage() {
           .select('weekly_payment, issued_date, member:members!inner(center_id)')
           .eq('members.center_id', cd.id)
           .lte('issued_date', report.report_date)
-          .or(`status.eq.active,and(status.eq.completed)`);
+          .eq('status', 'active');
 
-        // Expected = loans that were active on that date and not issued that same week
-        const reportDate = new Date(report.report_date + 'T00:00:00');
-        const dow = reportDate.getDay();
-        const daysFromMon = dow === 0 ? 6 : dow - 1;
-        const weekStart = new Date(reportDate);
-        weekStart.setDate(reportDate.getDate() - daysFromMon);
-        const weekStartStr = weekStart.toISOString().split('T')[0];
+        // Expected = active loans issued before the current collection week
+        const weekStartStr = weekStartMonday(report.report_date);
 
         const expectedCollection = (activeLoans ?? [])
           .filter((l: { issued_date: string }) => l.issued_date < weekStartStr)
@@ -169,12 +174,12 @@ export default function AdminReportsPage() {
       const [{ data: issuedLoans }, { data: issuedLoansDetail }] = await Promise.all([
         supabase
           .from('loans')
-          .select('loan_plan, member:members!inner(center_id)')
+          .select('principal, member:members!inner(center_id)')
           .eq('created_by', report.staff_id)
           .eq('issued_date', report.report_date),
         supabase
           .from('loans')
-          .select('id, loan_plan, member:members!inner(full_name, member_number, center:centers(name, center_number))')
+          .select('id, principal, member:members!inner(full_name, member_number, center:centers(name, center_number))')
           .eq('created_by', report.staff_id)
           .eq('issued_date', report.report_date),
       ]);
@@ -192,17 +197,12 @@ export default function AdminReportsPage() {
         if (!p.is_not_paid) centerMap.get(c.id)!.collected += p.amount_paid;
       }
 
-      for (const l of (issuedLoans ?? []) as unknown as { loan_plan: number; member: { center_id: string } }[]) {
+      for (const l of (issuedLoans ?? []) as unknown as { principal: number | null; member: { center_id: string } }[]) {
         const existing = [...centerMap.values()].find((c) => c.id === l.member.center_id);
-        if (existing) existing.loan_issued += l.loan_plan;
+        if (existing) existing.loan_issued += (l.principal ?? 0);
       }
 
-      const reportDate = new Date(report.report_date + 'T00:00:00');
-      const dow = reportDate.getDay();
-      const daysFromMon = dow === 0 ? 6 : dow - 1;
-      const weekStart = new Date(reportDate);
-      weekStart.setDate(reportDate.getDate() - daysFromMon);
-      const weekStartStr = weekStart.toISOString().split('T')[0];
+      const weekStartStr = weekStartMonday(report.report_date);
 
       const built: ReportCenter[] = [];
       for (const cd of centerMap.values()) {
@@ -210,7 +210,8 @@ export default function AdminReportsPage() {
           .from('loans')
           .select('weekly_payment, issued_date, member:members!inner(center_id)')
           .eq('members.center_id', cd.id)
-          .lte('issued_date', report.report_date);
+          .lte('issued_date', report.report_date)
+          .eq('status', 'active');
         const expectedCollection = (activeLoans ?? [])
           .filter((l: { issued_date: string }) => l.issued_date < weekStartStr)
           .reduce((s: number, l: { weekly_payment: number }) => s + l.weekly_payment, 0);
@@ -469,12 +470,8 @@ export default function AdminReportsPage() {
                                   <span className="text-xs text-gray-400 ml-1">#{loan.member?.center?.center_number}</span>
                                 </td>
                                 <td className="px-4 py-3 text-right">
-                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold ${
-                                    loan.loan_plan === 5000 ? 'bg-emerald-100 text-emerald-700' :
-                                    loan.loan_plan === 10000 ? 'bg-blue-100 text-blue-700' :
-                                    'bg-violet-100 text-violet-700'
-                                  }`}>
-                                    {formatCurrency(loan.loan_plan)}
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold bg-blue-100 text-blue-700">
+                                    {formatCurrency(loan.principal ?? 0)}
                                   </span>
                                 </td>
                               </tr>
@@ -484,7 +481,7 @@ export default function AdminReportsPage() {
                             <tr className="bg-blue-50 border-t-2 border-blue-100">
                               <td className="px-4 py-2.5 font-bold text-blue-700 text-xs" colSpan={2}>TOTAL LOAN ISSUED</td>
                               <td className="px-4 py-2.5 text-right font-bold text-blue-700">
-                                {formatCurrency(viewIssuedLoans.reduce((s, l) => s + l.loan_plan, 0))}
+                                {formatCurrency(viewIssuedLoans.reduce((s, l) => s + (l.principal ?? 0), 0))}
                               </td>
                             </tr>
                           </tfoot>

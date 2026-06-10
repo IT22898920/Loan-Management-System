@@ -39,7 +39,7 @@ export default function ImportPage() {
     setStatus('importing');
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { toast.error('Not authenticated.'); return; }
+    if (!user) { toast.error('Not authenticated.'); setStatus('preview'); return; }
 
     let successCount = 0;
     const importErrors: string[] = [];
@@ -54,11 +54,17 @@ export default function ImportPage() {
 
     for (const row of rows) {
       try {
-        let { data: center } = await supabase
+        // maybeSingle + limit(1): a missing or duplicate-named center must NOT
+        // throw (which previously fell through to creating a duplicate center).
+        const { data: foundCenter, error: cLookErr } = await supabase
           .from('centers')
           .select('id')
           .eq('name', row.center_name)
-          .single();
+          .order('center_number')
+          .limit(1)
+          .maybeSingle();
+        if (cLookErr) throw new Error(`Center lookup failed: ${cLookErr.message}`);
+        let center = foundCenter;
 
         if (!center) {
           const { data: newCenter, error: cErr } = await supabase
@@ -70,11 +76,18 @@ export default function ImportPage() {
           center = newCenter;
         }
 
-        let { data: member } = await supabase
+        // member_number is NOT globally unique — scope to this center, and use
+        // maybeSingle so a missing/duplicate row doesn't silently insert a dupe.
+        const { data: foundMember, error: mLookErr } = await supabase
           .from('members')
           .select('id')
           .eq('member_number', row.member_number)
-          .single();
+          .eq('center_id', center!.id)
+          .order('created_at')
+          .limit(1)
+          .maybeSingle();
+        if (mLookErr) throw new Error(`Member lookup failed for ${row.member_number}: ${mLookErr.message}`);
+        let member = foundMember;
 
         if (!member) {
           const { data: newMember, error: mErr } = await supabase
@@ -93,18 +106,26 @@ export default function ImportPage() {
 
         const weeklyMap: Record<number, number> = { 5000: 600, 10000: 1000, 20000: 2000 };
 
-        const { data: existingLoan } = await supabase
+        // Natural key: a member's loan for a given issued date (maybeSingle so a
+        // re-run updates in place instead of inserting a duplicate loan).
+        const { data: existingLoan, error: lLookErr } = await supabase
           .from('loans')
           .select('id')
           .eq('member_id', member!.id)
-          .eq('loan_plan', row.loan_type)
-          .single();
+          .eq('issued_date', row.issued_date)
+          .order('cycle_no')
+          .limit(1)
+          .maybeSingle();
+        if (lLookErr) throw new Error(`Loan lookup failed for ${row.member_number}: ${lLookErr.message}`);
 
         if (existingLoan) {
           // Update all key fields on existing loan (fixes wrong dates/weekly_payment from previous import)
           await supabase.from('loans').update({
             issued_date: row.issued_date,
             loan_balance: row.loan_balance,
+            principal: row.loan_type,
+            interest: Math.max(0, row.loan_balance - row.loan_type),
+            original_balance: row.loan_balance,
             weekly_payment: weeklyMap[row.loan_type] ?? 0,
             status: row.loan_balance <= 0 ? 'completed' : 'active',
           }).eq('id', existingLoan.id);
@@ -112,11 +133,15 @@ export default function ImportPage() {
           await supabase.from('loans').insert({
             member_id: member!.id,
             loan_plan: row.loan_type,
+            principal: row.loan_type,
+            interest: Math.max(0, row.loan_balance - row.loan_type),
+            original_balance: row.loan_balance,
             loan_balance: row.loan_balance,
             weekly_payment: weeklyMap[row.loan_type] ?? 0,
             issued_date: row.issued_date,
             status: row.loan_balance <= 0 ? 'completed' : 'active',
             is_first_loan: false,
+            source: 'import-xlsx',
             created_by: user.id,
           });
         }

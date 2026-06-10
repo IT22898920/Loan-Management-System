@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { requireAdmin } from '@/lib/auth-guard';
 import { z } from 'zod';
 
 const centerSchema = z.object({
@@ -10,6 +11,8 @@ const centerSchema = z.object({
 });
 
 export async function createCenterAction(formData: FormData) {
+  const auth = await requireAdmin();
+  if (!auth.ok) return { error: auth.error };
   const supabase = await createClient();
 
   const parsed = centerSchema.safeParse({
@@ -30,6 +33,8 @@ export async function createCenterAction(formData: FormData) {
 }
 
 export async function updateCenterAction(id: string, formData: FormData) {
+  const auth = await requireAdmin();
+  if (!auth.ok) return { error: auth.error };
   const supabase = await createClient();
 
   const parsed = centerSchema.safeParse({
@@ -50,6 +55,8 @@ export async function updateCenterAction(id: string, formData: FormData) {
 }
 
 export async function deleteCenterAction(id: string) {
+  const auth = await requireAdmin();
+  if (!auth.ok) return { error: auth.error };
   const supabase = await createClient();
   const { error } = await supabase.from('centers').delete().eq('id', id);
   if (error) return { error: error.message };

@@ -8,7 +8,6 @@ import { toast } from 'sonner';
 import { Loader2, ArrowLeft, Search, PlusCircle, CheckCircle2, CreditCard, Building2, Calendar, BadgeCheck, History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { createClient } from '@/lib/supabase/client';
 import { createLoanAction } from '@/app/actions/loans';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -21,20 +20,8 @@ interface FoundMember {
   photo_url: string | null;
   created_at: string;
   center: { name: string; center_number: number } | null;
-  loans: { id: string; loan_plan: number; loan_balance: number; weekly_payment: number; status: string; issued_date: string }[];
+  loans: { id: string; loan_plan: number | null; principal: number | null; loan_balance: number; weekly_payment: number; status: string; issued_date: string }[];
 }
-
-const PLAN_COLORS: Record<number, string> = {
-  5000:  'from-emerald-500 to-teal-600',
-  10000: 'from-blue-500 to-indigo-600',
-  20000: 'from-purple-500 to-violet-600',
-};
-
-const PLAN_BADGE: Record<number, string> = {
-  5000:  'bg-emerald-100 text-emerald-700 border-emerald-200',
-  10000: 'bg-blue-100 text-blue-700 border-blue-200',
-  20000: 'bg-violet-100 text-violet-700 border-violet-200',
-};
 
 export default function NewLoanPage() {
   const router = useRouter();
@@ -42,7 +29,9 @@ export default function NewLoanPage() {
   const [member, setMember] = useState<FoundMember | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
-  const [plan, setPlan] = useState('');
+  const [principal, setPrincipal] = useState('');
+  const [interest, setInterest] = useState('');
+  const [weekly, setWeekly] = useState('');
   const [saving, setSaving] = useState(false);
 
   async function searchMember() {
@@ -50,14 +39,15 @@ export default function NewLoanPage() {
     setSearching(true);
     setMember(null);
     setPhotoUrl(null);
-    setPlan('');
+    setPrincipal(''); setInterest(''); setWeekly('');
 
     const supabase = createClient();
     const { data } = await supabase
       .from('members')
-      .select(`id, full_name, member_number, photo_url, created_at, center:centers(name, center_number), loans(id, loan_plan, loan_balance, weekly_payment, status, issued_date)`)
+      .select(`id, full_name, member_number, photo_url, created_at, center:centers(name, center_number), loans(id, loan_plan, principal, loan_balance, weekly_payment, status, issued_date)`)
       .eq('member_number', memberNumber.trim())
-      .single();
+      .limit(1)
+      .maybeSingle();
 
     setSearching(false);
 
@@ -68,7 +58,6 @@ export default function NewLoanPage() {
 
     setMember(data as unknown as FoundMember);
 
-    // Load signed photo URL
     if (data.photo_url) {
       const { data: signed } = await supabase.storage
         .from('member-photos')
@@ -77,22 +66,36 @@ export default function NewLoanPage() {
     }
   }
 
-  const selectedPlanConfig = LOAN_PLANS.find((p) => p.plan === parseInt(plan));
   const activeLoans = member?.loans?.filter((l) => l.status === 'active') ?? [];
   const completedLoans = member?.loans?.filter((l) => l.status === 'completed') ?? [];
   const isFirstLoan = (member?.loans?.length ?? 0) === 0;
-  const expectedBalance = selectedPlanConfig
-    ? isFirstLoan ? selectedPlanConfig.new_member_balance : selectedPlanConfig.returning_balance
-    : 0;
+
+  const principalNum = parseFloat(principal) || 0;
+  const interestNum = parseFloat(interest) || 0;
+  const weeklyNum = parseFloat(weekly) || 0;
+  const totalBalance = principalNum + interestNum;
+
+  // Quick-fill from a standard plan preset (uses first/returning interest rates)
+  function applyPreset(planValue: number) {
+    const cfg = LOAN_PLANS.find((p) => p.plan === planValue);
+    if (!cfg) return;
+    const bal = isFirstLoan ? cfg.new_member_balance : cfg.returning_balance;
+    setPrincipal(String(cfg.plan));
+    setInterest(String(bal - cfg.plan));
+    setWeekly(String(cfg.weekly_payment));
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!member || !plan) { toast.error('Please select a member and loan plan.'); return; }
+    if (!member) { toast.error('Please select a member.'); return; }
+    if (principalNum <= 0 || weeklyNum <= 0) { toast.error('Enter a valid principal and weekly payment.'); return; }
 
     setSaving(true);
     const fd = new FormData();
-    fd.append('member_number', member.member_number);
-    fd.append('loan_plan', plan);
+    fd.append('member_id', member.id);
+    fd.append('principal', String(principalNum));
+    fd.append('interest', String(interestNum));
+    fd.append('weekly_payment', String(weeklyNum));
 
     const result = await createLoanAction(fd);
     setSaving(false);
@@ -125,7 +128,7 @@ export default function NewLoanPage() {
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Find Member</p>
         <div className="flex gap-2">
           <Input
-            placeholder="Member number (e.g. MBR-001)"
+            placeholder="Member number (e.g. DLK0096)"
             value={memberNumber}
             onChange={(e) => setMemberNumber(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && searchMember()}
@@ -137,20 +140,14 @@ export default function NewLoanPage() {
         </div>
       </div>
 
-      {/* Found Member Card — detailed */}
+      {/* Found Member Card */}
       {member && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-4">
-          {/* Member header */}
           <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-green-100 px-5 py-4">
             <div className="flex items-center gap-4">
               {photoUrl ? (
-                <Image
-                  src={photoUrl}
-                  alt={member.full_name}
-                  width={56}
-                  height={56}
-                  className="w-14 h-14 rounded-2xl object-cover border-2 border-white shadow-sm shrink-0"
-                />
+                <Image src={photoUrl} alt={member.full_name} width={56} height={56}
+                  className="w-14 h-14 rounded-2xl object-cover border-2 border-white shadow-sm shrink-0" />
               ) : (
                 <div className="w-14 h-14 rounded-2xl bg-emerald-200 flex items-center justify-center text-2xl font-bold text-emerald-800 shrink-0">
                   {member.full_name.charAt(0).toUpperCase()}
@@ -171,23 +168,20 @@ export default function NewLoanPage() {
             </div>
           </div>
 
-          {/* Member details grid */}
           <div className="divide-y divide-gray-50">
             <div className="grid grid-cols-2 divide-x divide-gray-50">
               <div className="px-5 py-3.5 flex items-center gap-2.5">
                 <Building2 className="h-4 w-4 text-gray-400 shrink-0" />
                 <div>
                   <p className="text-[10px] text-gray-400 uppercase font-medium">Center</p>
-                  <p className="text-sm font-semibold text-gray-800">
-                    {(member.center as { name: string; center_number: number } | null)?.name ?? '—'}
-                  </p>
+                  <p className="text-sm font-semibold text-gray-800">{member.center?.name ?? '—'}</p>
                 </div>
               </div>
               <div className="px-5 py-3.5 flex items-center gap-2.5">
                 <Calendar className="h-4 w-4 text-gray-400 shrink-0" />
                 <div>
                   <p className="text-[10px] text-gray-400 uppercase font-medium">Joined</p>
-                  <p className="text-sm font-semibold text-gray-800">{formatDate(member.created_at)}</p>
+                  <p className="text-sm font-semibold text-gray-800">{formatDate(member.loans?.map(l => l.issued_date).filter(Boolean).sort()[0] ?? member.created_at)}</p>
                 </div>
               </div>
             </div>
@@ -209,16 +203,13 @@ export default function NewLoanPage() {
               </div>
             </div>
 
-            {/* Active loans list */}
             {activeLoans.length > 0 && (
               <div className="px-5 py-3.5">
                 <p className="text-[10px] text-gray-400 uppercase font-medium mb-2">Current Active Loans</p>
                 <div className="space-y-2">
                   {activeLoans.map((l) => (
-                    <div key={l.id} className={`flex items-center justify-between px-3 py-2 rounded-xl border text-xs ${PLAN_BADGE[l.loan_plan]}`}>
-                      <span className="font-bold">
-                        {l.loan_plan === 5000 ? '5K Plan' : l.loan_plan === 10000 ? '10K Plan' : '20K Plan'}
-                      </span>
+                    <div key={l.id} className="flex items-center justify-between px-3 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-xs">
+                      <span className="font-bold">{formatCurrency(l.principal ?? 0)}</span>
                       <span>L/B: <strong>{formatCurrency(l.loan_balance)}</strong></span>
                       <span>Weekly: <strong>{formatCurrency(l.weekly_payment)}</strong></span>
                       <span className="text-gray-400">Since {formatDate(l.issued_date)}</span>
@@ -231,43 +222,55 @@ export default function NewLoanPage() {
         </div>
       )}
 
-
-      {/* Loan plan selection */}
+      {/* Loan entry — custom amounts with quick presets */}
       {member && (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Select Loan Plan</p>
-            <Select onValueChange={setPlan} required>
-              <SelectTrigger className="rounded-xl">
-                <SelectValue placeholder="Choose a plan..." />
-              </SelectTrigger>
-              <SelectContent>
-                {LOAN_PLANS.map((p) => (
-                  <SelectItem key={p.plan} value={p.plan.toString()}>
-                    Rs. {p.plan.toLocaleString()} — Weekly {formatCurrency(p.weekly_payment)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Loan Details</p>
 
-            {selectedPlanConfig && (
-              <div className={`mt-4 p-4 rounded-xl bg-gradient-to-br ${PLAN_COLORS[selectedPlanConfig.plan] ?? 'from-gray-500 to-gray-600'} text-white`}>
+            {/* Preset quick-fill */}
+            <div className="flex gap-2 mb-4">
+              {LOAN_PLANS.map((p) => (
+                <button key={p.plan} type="button" onClick={() => applyPreset(p.plan)}
+                  className="flex-1 rounded-xl border border-gray-200 bg-gray-50 hover:bg-blue-50 hover:border-blue-300 py-2 text-xs font-semibold text-gray-700 transition-colors">
+                  {p.plan / 1000}K
+                </button>
+              ))}
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[11px] font-medium text-gray-500">Principal (amount given) Rs.</label>
+                <Input type="number" inputMode="numeric" value={principal} onChange={(e) => setPrincipal(e.target.value)}
+                  placeholder="e.g. 10000" className="rounded-xl mt-1" />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-gray-500">Interest Rs.</label>
+                <Input type="number" inputMode="numeric" value={interest} onChange={(e) => setInterest(e.target.value)}
+                  placeholder="e.g. 2500" className="rounded-xl mt-1" />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-gray-500">Weekly payment Rs.</label>
+                <Input type="number" inputMode="numeric" value={weekly} onChange={(e) => setWeekly(e.target.value)}
+                  placeholder="e.g. 1000" className="rounded-xl mt-1" />
+              </div>
+            </div>
+
+            {principalNum > 0 && (
+              <div className="mt-4 p-4 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white">
                 <div className="flex items-center gap-2 mb-3">
                   <CreditCard className="h-5 w-5" />
-                  <span className="font-semibold">
-                    {selectedPlanConfig.plan === 5000 ? '5K Plan' : selectedPlanConfig.plan === 10000 ? '10K Plan' : '20K Plan'}
-                    {isFirstLoan ? ' · First Loan Rate' : ' · Returning Member Rate'}
-                  </span>
+                  <span className="font-semibold">{isFirstLoan ? 'First Loan' : 'Returning Member'}</span>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-white/20 rounded-xl p-3">
                     <p className="text-xs text-white/80 mb-0.5">Starting L/B</p>
-                    <p className="font-black text-xl">{formatCurrency(expectedBalance)}</p>
-                    <p className="text-[10px] text-white/60 mt-0.5">{isFirstLoan ? 'New member' : 'Returning'}</p>
+                    <p className="font-black text-xl">{formatCurrency(totalBalance)}</p>
+                    <p className="text-[10px] text-white/60 mt-0.5">Principal + interest</p>
                   </div>
                   <div className="bg-white/20 rounded-xl p-3">
                     <p className="text-xs text-white/80 mb-0.5">Weekly Payment</p>
-                    <p className="font-black text-xl">{formatCurrency(selectedPlanConfig.weekly_payment)}</p>
+                    <p className="font-black text-xl">{formatCurrency(weeklyNum)}</p>
                     <p className="text-[10px] text-white/60 mt-0.5">Every week</p>
                   </div>
                 </div>
@@ -275,12 +278,8 @@ export default function NewLoanPage() {
             )}
           </div>
 
-          <Button
-            type="submit"
-            className="w-full rounded-2xl h-14 text-base font-semibold"
-            size="lg"
-            disabled={saving || !plan}
-          >
+          <Button type="submit" className="w-full rounded-2xl h-14 text-base font-semibold" size="lg"
+            disabled={saving || principalNum <= 0 || weeklyNum <= 0}>
             {saving ? (
               <><Loader2 className="h-5 w-5 animate-spin mr-2" />Creating Loan...</>
             ) : (

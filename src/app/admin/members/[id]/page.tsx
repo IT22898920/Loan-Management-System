@@ -26,13 +26,19 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
 
   const center = member.center as { name: string; center_number: number } | null;
   const loans = (member.loans ?? []) as Array<{
-    id: string; loan_plan: number; loan_balance: number; weekly_payment: number;
+    id: string; loan_plan: number | null; principal: number | null; interest: number | null;
+    original_balance: number | null; cycle_no: number | null;
+    loan_balance: number; weekly_payment: number;
     issued_date: string; status: string; is_first_loan: boolean;
     payments: Array<{ id: string; amount_paid: number; is_not_paid: boolean; shortfall: number; payment_date: string; gps_lat: number | null; gps_lng: number | null; gps_address: string | null }>;
   }>;
 
   const activeLoans = loans.filter(l => l.status === 'active');
   const completedLoans = loans.filter(l => l.status === 'completed');
+  // "Member since" = earliest loan issue date from the sheet (member.created_at is just the import date)
+  const memberSince = loans.length
+    ? loans.map(l => l.issued_date).filter(Boolean).sort()[0]
+    : member.created_at;
 
   return (
     <div className="min-h-screen bg-gray-50/50">
@@ -69,8 +75,8 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
             <p className="text-xl font-bold mt-0.5">{completedLoans.length}</p>
           </div>
           <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-3 border border-white/20">
-            <p className="text-blue-200 text-xs">Joined</p>
-            <p className="text-sm font-semibold mt-0.5">{formatDate(member.created_at)}</p>
+            <p className="text-blue-200 text-xs">Member Since</p>
+            <p className="text-sm font-semibold mt-0.5">{formatDate(memberSince)}</p>
           </div>
         </div>
       </div>
@@ -93,12 +99,18 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-gray-900">Rs. {loan.loan_plan.toLocaleString()} Loan</h3>
+                    <h3 className="font-semibold text-gray-900">Rs. {(loan.principal ?? loan.original_balance ?? loan.loan_balance).toLocaleString()} Loan</h3>
                     {loan.is_first_loan && (
                       <span className="text-xs px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 font-medium">First Loan</span>
                     )}
+                    {loan.cycle_no && loan.cycle_no > 1 && (
+                      <span className="text-xs px-2 py-0.5 rounded-lg bg-blue-50 text-blue-700 font-medium">Cycle {loan.cycle_no}</span>
+                    )}
                   </div>
-                  <p className="text-xs text-muted-foreground">Issued {formatDate(loan.issued_date)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Issued {formatDate(loan.issued_date)}
+                    {loan.interest != null && loan.interest > 0 && ` · Interest Rs. ${loan.interest.toLocaleString()}`}
+                  </p>
                 </div>
               </div>
               <span className={`inline-flex items-center px-3 py-1 rounded-xl text-xs font-semibold ${

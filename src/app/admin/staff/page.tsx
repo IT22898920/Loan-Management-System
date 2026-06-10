@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { Plus, UserCog, CalendarDays, ArrowRight, Search, X, Loader2 } from 'lucide-react';
+import { Plus, UserCog, CalendarDays, ArrowRight, Search, X, Loader2, Pencil } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { DAYS_OF_WEEK } from '@/types';
 
@@ -139,12 +139,21 @@ export default function StaffPage() {
                         <p className="text-xs text-muted-foreground">{member.email}</p>
                       </div>
                     </div>
-                    <Link
-                      href={`/admin/staff/${member.id}/assignments`}
-                      className="inline-flex items-center gap-1.5 text-xs font-medium text-primary bg-primary/5 hover:bg-primary/10 px-3 py-1.5 rounded-lg transition-colors"
-                    >
-                      <CalendarDays className="h-3.5 w-3.5" /> Assign
-                    </Link>
+                    <div className="flex items-center gap-1.5">
+                      <Link
+                        href={`/admin/staff/${member.id}/edit`}
+                        title="Edit staff details"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 px-2.5 py-1.5 rounded-lg transition-colors"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Link>
+                      <Link
+                        href={`/admin/staff/${member.id}/assignments`}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-primary bg-primary/5 hover:bg-primary/10 px-3 py-1.5 rounded-lg transition-colors"
+                      >
+                        <CalendarDays className="h-3.5 w-3.5" /> Assign
+                      </Link>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-4 gap-1.5">
@@ -169,9 +178,14 @@ export default function StaffPage() {
                     <span className="text-xs text-muted-foreground">
                       {totalAsgn} assignment{totalAsgn !== 1 ? 's' : ''} this week
                     </span>
-                    <Link href={`/admin/staff/${member.id}/assignments`} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
-                      Edit schedule <ArrowRight className="h-3 w-3" />
-                    </Link>
+                    <div className="flex items-center gap-3 text-xs">
+                      <Link href={`/admin/staff/${member.id}/edit`} className="inline-flex items-center gap-1 text-muted-foreground hover:text-gray-700 transition-colors">
+                        <Pencil className="h-3 w-3" /> Edit
+                      </Link>
+                      <Link href={`/admin/staff/${member.id}/assignments`} className="inline-flex items-center gap-1 text-muted-foreground hover:text-primary transition-colors">
+                        Schedule <ArrowRight className="h-3 w-3" />
+                      </Link>
+                    </div>
                   </div>
                 </div>
               );

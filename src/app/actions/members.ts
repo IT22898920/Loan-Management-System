@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { requireAdmin } from '@/lib/auth-guard';
 import { z } from 'zod';
 
 const memberSchema = z.object({
@@ -11,9 +12,9 @@ const memberSchema = z.object({
 });
 
 export async function createMemberAction(formData: FormData) {
+  const auth = await requireAdmin();
+  if (!auth.ok) return { error: auth.error };
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: 'Unauthorized' };
 
   const parsed = memberSchema.safeParse({
     member_number: formData.get('member_number'),
@@ -40,7 +41,7 @@ export async function createMemberAction(formData: FormData) {
   const { error } = await supabase.from('members').insert({
     ...parsed.data,
     photo_url,
-    created_by: user.id,
+    created_by: auth.userId,
   });
 
   if (error) return { error: error.message };
@@ -50,6 +51,8 @@ export async function createMemberAction(formData: FormData) {
 }
 
 export async function updateMemberAction(id: string, formData: FormData) {
+  const auth = await requireAdmin();
+  if (!auth.ok) return { error: auth.error };
   const supabase = await createClient();
 
   const parsed = memberSchema.safeParse({

@@ -34,3 +34,17 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# DIRIYALANKA real data — contains member PII; never commit
+/diriyalanka_dataset/
+# generated client data exports
+/DIRIYALANKA-Centers.xlsx
+
+# migration/import/e2e helper scripts contain hardcoded credentials
+/scripts/_*.py
+/scripts/_*.cjs
+/scripts/run-migrations.mjs
+__pycache__/
+# source Excel/docs with sensitive content
+*.xlsx
+*.xls

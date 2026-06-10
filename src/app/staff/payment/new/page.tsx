@@ -20,7 +20,7 @@ function PaymentForm() {
   const memberId = searchParams.get('memberId') ?? '';
   const weekly = parseFloat(searchParams.get('weekly') ?? '0');
   const balance = parseFloat(searchParams.get('balance') ?? '0');
-  const plan = parseInt(searchParams.get('plan') ?? '0');
+  const principal = parseFloat(searchParams.get('principal') ?? '0');
   const prevShortfall = parseFloat(searchParams.get('prevShortfall') ?? '0');
 
   const [amount, setAmount] = useState(weekly.toString());
@@ -32,7 +32,7 @@ function PaymentForm() {
   const shortfall = !isNotPaid && amountNum > 0 && amountNum < weekly ? weekly - amountNum : 0;
   const willComplete = !isNotPaid && amountNum >= balance;
 
-  const planLabel = plan === 5000 ? '5K Plan' : plan === 10000 ? '10K Plan' : '20K Plan';
+  const planLabel = principal > 0 ? `Rs. ${principal.toLocaleString()} loan` : 'Loan payment';
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

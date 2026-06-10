@@ -58,7 +58,7 @@ export default function StaffReportPage() {
     const [{ data: profile }, { data: assignments }, { data: todayLoans }, { data: existingReport }] = await Promise.all([
       supabase.from('profiles').select('full_name').eq('id', user.id).single(),
       assignmentsQuery,
-      supabase.from('loans').select('loan_plan, member:members!inner(center_id)').eq('created_by', user.id).eq('issued_date', today),
+      supabase.from('loans').select('principal, member:members!inner(center_id)').eq('created_by', user.id).eq('issued_date', today),
       supabase.from('daily_reports').select('cash_issued, loan_issued').eq('staff_id', user.id).eq('report_date', today).single(),
     ]);
 
@@ -69,14 +69,14 @@ export default function StaffReportPage() {
       setCashIssued(existingReport.cash_issued?.toString() ?? '0');
     }
 
-    const totalLoanIssued = (todayLoans ?? []).reduce((s: number, l: { loan_plan: number }) => s + l.loan_plan, 0);
+    const totalLoanIssued = (todayLoans ?? []).reduce((s: number, l: { principal: number | null }) => s + (l.principal ?? 0), 0);
     if (totalLoanIssued > 0) setLoanIssued(totalLoanIssued.toString());
 
     // Per-center loan issued map
     const loanIssuedByCenter: Record<string, number> = {};
-    for (const l of (todayLoans ?? []) as unknown as { loan_plan: number; member: { center_id: string } }[]) {
+    for (const l of (todayLoans ?? []) as unknown as { principal: number | null; member: { center_id: string } }[]) {
       const cid = l.member.center_id;
-      loanIssuedByCenter[cid] = (loanIssuedByCenter[cid] ?? 0) + l.loan_plan;
+      loanIssuedByCenter[cid] = (loanIssuedByCenter[cid] ?? 0) + (l.principal ?? 0);
     }
 
     const assignedCenters = (assignments ?? [])

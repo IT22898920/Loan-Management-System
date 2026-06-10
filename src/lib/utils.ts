@@ -18,13 +18,13 @@ export function formatDate(dateString: string): string {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+    timeZone: 'Asia/Colombo',
   });
 }
 
+// Today's calendar date in Asia/Colombo (YYYY-MM-DD), independent of the host
+// machine's timezone — must match the DB's `now() at time zone 'Asia/Colombo'`
+// used by RLS, or dawn collections get stamped with the wrong day.
 export function getTodayString(): string {
-  // TEST OVERRIDE — remove after testing
-  return '2026-04-13'; // Next Monday
-
-  const now = new Date(); // eslint-disable-line no-unreachable
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Colombo' }).format(new Date());
 }

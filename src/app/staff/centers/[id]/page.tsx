@@ -7,7 +7,8 @@ import { formatCurrency, getTodayString } from '@/lib/utils';
 
 interface LoanWithMember {
   id: string;
-  loan_plan: number;
+  loan_plan: number | null;
+  principal: number | null;
   loan_balance: number;
   weekly_payment: number;
   status: string;
@@ -18,6 +19,8 @@ interface LoanWithMember {
   completedToday?: boolean;
   prevAlert?: { np: boolean; shortfall: boolean; netOwed: number } | null;
 }
+
+const LOAN_SELECT = `id, loan_plan, principal, loan_balance, weekly_payment, status, issued_date, member:members!inner(id, full_name, member_number, center_id)`;
 
 export default async function CenterDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -44,7 +47,7 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
 
   const { data: loans } = await supabase
     .from('loans')
-    .select(`id, loan_plan, loan_balance, weekly_payment, status, issued_date, member:members!inner(id, full_name, member_number, center_id)`)
+    .select(LOAN_SELECT)
     .eq('status', 'active')
     .eq('members.center_id', id);
 
@@ -72,10 +75,8 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
       .gte('payment_date', fourWeeksAgoString)
       .order('payment_date', { ascending: true });
 
-    // Weekly payment lookup from already-fetched loans
     const weeklyByLoan = new Map((loans ?? []).map((l) => [l.id, (l as unknown as { weekly_payment: number }).weekly_payment]));
 
-    // Group payments by loan
     const prevByLoan = new Map<string, Array<{ is_not_paid: boolean; shortfall: number; amount_paid: number }>>();
     for (const p of prevPayments ?? []) {
       const arr = prevByLoan.get(p.loan_id) ?? [];
@@ -83,7 +84,6 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
       prevByLoan.set(p.loan_id, arr);
     }
 
-    // Calculate net outstanding shortfall per loan
     for (const loanId of allLoanIds) {
       const loanPayments = prevByLoan.get(loanId) ?? [];
       const weekly = weeklyByLoan.get(loanId) ?? 0;
@@ -99,12 +99,10 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
           hasPartialShort = true;
           netOwed += p.shortfall;
         } else if (p.amount_paid > weekly) {
-          // Overpayment: member paid back previous shortfall
           netOwed = Math.max(0, netOwed - (p.amount_paid - weekly));
         }
       }
 
-      // Only show alert if there's still an outstanding amount
       if (netOwed > 0) {
         prevAlertByLoan.set(loanId, { np: hasNP, shortfall: hasPartialShort, netOwed });
       }
@@ -124,7 +122,7 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
   if (completedLoanIdsToday.length > 0) {
     const { data } = await adminClient
       .from('loans')
-      .select(`id, loan_plan, loan_balance, weekly_payment, status, issued_date, member:members!inner(id, full_name, member_number, center_id)`)
+      .select(LOAN_SELECT)
       .in('id', completedLoanIdsToday)
       .eq('members.center_id', id);
     completedTodayLoans = data ?? [];
@@ -136,63 +134,53 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
   );
   const { data: allCompletedLoans } = await adminClient
     .from('loans')
-    .select(`id, loan_plan, loan_balance, weekly_payment, status, issued_date, member:members!inner(id, full_name, member_number, center_id)`)
+    .select(LOAN_SELECT)
     .eq('status', 'completed')
     .eq('members.center_id', id);
 
-  // Only show members who have NO active loans (fully completed)
   interface CompletedMemberInfo {
     id: string;
     full_name: string;
     member_number: string;
-    plans: number[];
+    principals: number[];
   }
   const completedMemberMap = new Map<string, CompletedMemberInfo>();
   for (const l of (allCompletedLoans ?? []) as unknown as LoanWithMember[]) {
     const m = l.member;
     if (!m || activeMemberIds.has(m.id)) continue; // skip if still has active loan
     if (!completedMemberMap.has(m.id)) {
-      completedMemberMap.set(m.id, { id: m.id, full_name: m.full_name, member_number: m.member_number, plans: [] });
+      completedMemberMap.set(m.id, { id: m.id, full_name: m.full_name, member_number: m.member_number, principals: [] });
     }
-    completedMemberMap.get(m.id)!.plans.push(l.loan_plan);
+    completedMemberMap.get(m.id)!.principals.push(l.principal ?? 0);
   }
   const fullyCompletedMembers = [...completedMemberMap.values()];
 
-  const loanGroups: Record<number, LoanWithMember[]> = { 5000: [], 10000: [], 20000: [] };
+  // Single ordered list of active loans (+ completed-today), sorted by member number
+  const memberLoans: LoanWithMember[] = [];
   for (const loan of (loans ?? []) as unknown as LoanWithMember[]) {
-    if (loanGroups[loan.loan_plan]) {
-      loan.todayPayment = paymentByLoan.get(loan.id) ?? null;
-      loan.isNewThisWeek = loan.issued_date >= weekStartString;
-      loan.prevAlert = prevAlertByLoan.get(loan.id) ?? null;
-      loanGroups[loan.loan_plan].push(loan);
-    }
+    loan.todayPayment = paymentByLoan.get(loan.id) ?? null;
+    loan.isNewThisWeek = loan.issued_date >= weekStartString;
+    loan.prevAlert = prevAlertByLoan.get(loan.id) ?? null;
+    memberLoans.push(loan);
   }
-  // Add completed-today loans
   for (const loan of completedTodayLoans as unknown as LoanWithMember[]) {
-    if (loanGroups[loan.loan_plan]) {
-      loan.todayPayment = paymentByLoan.get(loan.id) ?? null;
-      loan.completedToday = true;
-      loanGroups[loan.loan_plan].push(loan);
-    }
+    loan.todayPayment = paymentByLoan.get(loan.id) ?? null;
+    loan.completedToday = true;
+    memberLoans.push(loan);
   }
+  memberLoans.sort((a, b) => (a.member?.member_number ?? '').localeCompare(b.member?.member_number ?? ''));
 
   // Only count payments for loans belonging to THIS center
   const centerLoanIds = new Set((loans ?? []).map((l) => l.id));
   const centerPayments = (todayPayments ?? []).filter((p) => centerLoanIds.has(p.loan_id));
 
-  const totalMembers = Object.values(loanGroups).reduce((s, g) => s + g.length, 0);
+  const totalMembers = memberLoans.length;
   const collectedCount = centerPayments.filter(p => !p.is_not_paid).length;
   const npCount = centerPayments.filter(p => p.is_not_paid).length;
   const totalCollected = centerPayments.reduce((s, p) => s + (p.is_not_paid ? 0 : p.amount_paid), 0);
   const totalExpected = (loans ?? [])
     .filter((l) => (l as unknown as { issued_date: string }).issued_date < weekStartString)
     .reduce((s, l) => s + (l as unknown as { weekly_payment: number }).weekly_payment, 0);
-
-  const PLAN_CONFIG = [
-    { plan: 5000,  label: '5,000 Plan',  weekly: 'Rs. 600/week',    iconBg: 'bg-emerald-500', textColor: 'text-emerald-700', lightBg: 'bg-emerald-50' },
-    { plan: 10000, label: '10,000 Plan', weekly: 'Rs. 1,000/week',  iconBg: 'bg-blue-500',    textColor: 'text-blue-700',    lightBg: 'bg-blue-50' },
-    { plan: 20000, label: '20,000 Plan', weekly: 'Rs. 2,000/week',  iconBg: 'bg-violet-500',  textColor: 'text-violet-700',  lightBg: 'bg-violet-50' },
-  ];
 
   return (
     <div className="pb-28">
@@ -217,7 +205,6 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
               <p className="font-bold text-lg mt-0.5 text-blue-100">{formatCurrency(totalExpected)}</p>
             </div>
           </div>
-          {/* Progress bar */}
           <div className="h-2 bg-white/20 rounded-full overflow-hidden">
             <div
               className="h-full bg-green-400 rounded-full transition-all"
@@ -245,124 +232,117 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
         </div>
       </div>
 
-      {/* Loan plan groups */}
+      {/* Members list */}
       <div className="space-y-4">
-        {PLAN_CONFIG.map(({ plan, label, weekly, iconBg, textColor, lightBg }) => {
-          const groupLoans = loanGroups[plan];
-          if (groupLoans.length === 0) return null;
-
-          return (
-            <div key={plan} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-              {/* Group header */}
-              <div className={`px-4 py-3 ${lightBg} border-b border-gray-100 flex items-center gap-3`}>
-                <div className={`w-8 h-8 rounded-lg ${iconBg} flex items-center justify-center shrink-0`}>
-                  <Banknote className="h-4 w-4 text-white" />
-                </div>
-                <div>
-                  <p className={`font-bold text-sm ${textColor}`}>{label}</p>
-                  <p className="text-xs text-gray-500">{weekly} · {groupLoans.length} member{groupLoans.length > 1 ? 's' : ''}</p>
-                </div>
+        {memberLoans.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-4 py-3 bg-blue-50 border-b border-gray-100 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center shrink-0">
+                <Banknote className="h-4 w-4 text-white" />
               </div>
-
-              {/* Members */}
-              <div className="divide-y divide-gray-50">
-                {groupLoans.map((loan) => {
-                  const member = loan.member;
-                  const paid = loan.todayPayment;
-
-                  return (
-                    <div key={loan.id} className={`px-4 py-3.5 ${paid ? 'bg-gray-50/70' : 'bg-white'}`}>
-                      <div className="flex items-center gap-3">
-                        {/* Avatar */}
-                        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
-                          paid?.is_not_paid ? 'bg-red-100 text-red-600' :
-                          paid ? 'bg-green-100 text-green-700' :
-                          'bg-gray-100 text-gray-500'
-                        }`}>
-                          {member?.full_name?.charAt(0).toUpperCase()}
-                        </div>
-
-                        {/* Info */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <Link
-                              href={`/staff/members/${member?.id}`}
-                              className="font-semibold text-gray-900 text-sm hover:text-primary truncate"
-                            >
-                              {member?.full_name}
-                            </Link>
-                            <span className="text-xs text-gray-400">#{member?.member_number}</span>
-                          </div>
-                          <div className="flex items-center gap-3 text-xs text-gray-500 mt-0.5">
-                            <span>L/B: <span className="font-semibold text-gray-800">{formatCurrency(loan.loan_balance)}</span></span>
-                            <span>Due: <span className="font-semibold text-gray-800">{formatCurrency(loan.weekly_payment)}</span></span>
-                          </div>
-
-                          {loan.prevAlert && (loan.prevAlert.np || loan.prevAlert.shortfall) && (
-                            <div className="flex items-center gap-1 mt-1">
-                              {loan.prevAlert.np && (
-                                <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-600">
-                                  <AlertTriangle className="h-2.5 w-2.5" /> Prev N/P
-                                </span>
-                              )}
-                              {loan.prevAlert.shortfall && (
-                                <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
-                                  <AlertTriangle className="h-2.5 w-2.5" /> Prev Short
-                                </span>
-                              )}
-                            </div>
-                          )}
-
-                          {paid && (
-                            <div className={`flex items-center gap-1 text-xs font-medium mt-1 ${
-                              paid.is_not_paid ? 'text-red-500' : paid.shortfall > 0 ? 'text-amber-600' : 'text-green-600'
-                            }`}>
-                              {paid.is_not_paid ? (
-                                <><MinusCircle className="h-3 w-3" /> Not Paid</>
-                              ) : paid.shortfall > 0 ? (
-                                <><AlertTriangle className="h-3 w-3" /> {formatCurrency(paid.amount_paid)} · shortfall {formatCurrency(paid.shortfall)}</>
-                              ) : (
-                                <><CheckCircle2 className="h-3 w-3" /> Paid {formatCurrency(paid.amount_paid)}</>
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Action */}
-                        {loan.completedToday ? (
-                          <span className="shrink-0 flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700">
-                            <Trophy className="h-3 w-3" /> Completed
-                          </span>
-                        ) : loan.isNewThisWeek ? (
-                          <span className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-full bg-blue-100 text-blue-600">
-                            Next Week
-                          </span>
-                        ) : !paid ? (
-                          <Button size="sm" asChild className="shrink-0 rounded-xl h-9 px-4">
-                            <Link href={`/staff/payment/new?loanId=${loan.id}&memberId=${member?.id}&plan=${plan}&weekly=${loan.weekly_payment}&balance=${loan.loan_balance}&prevShortfall=${loan.prevAlert?.netOwed ?? 0}`}>
-                              Collect
-                            </Link>
-                          </Button>
-                        ) : (
-                          <span className={`shrink-0 text-xs font-bold px-3 py-1.5 rounded-full ${
-                            paid.is_not_paid ? 'bg-red-100 text-red-600' :
-                            paid.shortfall > 0 ? 'bg-amber-100 text-amber-700' :
-                            'bg-green-100 text-green-700'
-                          }`}>
-                            {paid.is_not_paid ? 'N/P' : 'Done'}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+              <div>
+                <p className="font-bold text-sm text-blue-700">Active Members</p>
+                <p className="text-xs text-gray-500">{memberLoans.length} member{memberLoans.length > 1 ? 's' : ''} to collect</p>
               </div>
             </div>
-          );
-        })}
+
+            <div className="divide-y divide-gray-50">
+              {memberLoans.map((loan) => {
+                const member = loan.member;
+                const paid = loan.todayPayment;
+
+                return (
+                  <div key={loan.id} className={`px-4 py-3.5 ${paid ? 'bg-gray-50/70' : 'bg-white'}`}>
+                    <div className="flex items-center gap-3">
+                      {/* Avatar */}
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
+                        paid?.is_not_paid ? 'bg-red-100 text-red-600' :
+                        paid ? 'bg-green-100 text-green-700' :
+                        'bg-gray-100 text-gray-500'
+                      }`}>
+                        {member?.full_name?.charAt(0).toUpperCase()}
+                      </div>
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <Link
+                            href={`/staff/members/${member?.id}`}
+                            className="font-semibold text-gray-900 text-sm hover:text-primary truncate"
+                          >
+                            {member?.full_name}
+                          </Link>
+                          <span className="text-xs text-gray-400">#{member?.member_number}</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-gray-500 mt-0.5">
+                          <span>L/B: <span className="font-semibold text-gray-800">{formatCurrency(loan.loan_balance)}</span></span>
+                          <span>Due: <span className="font-semibold text-gray-800">{formatCurrency(loan.weekly_payment)}</span></span>
+                        </div>
+
+                        {loan.prevAlert && (loan.prevAlert.np || loan.prevAlert.shortfall) && (
+                          <div className="flex items-center gap-1 mt-1">
+                            {loan.prevAlert.np && (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-600">
+                                <AlertTriangle className="h-2.5 w-2.5" /> Prev N/P
+                              </span>
+                            )}
+                            {loan.prevAlert.shortfall && (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
+                                <AlertTriangle className="h-2.5 w-2.5" /> Prev Short
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {paid && (
+                          <div className={`flex items-center gap-1 text-xs font-medium mt-1 ${
+                            paid.is_not_paid ? 'text-red-500' : paid.shortfall > 0 ? 'text-amber-600' : 'text-green-600'
+                          }`}>
+                            {paid.is_not_paid ? (
+                              <><MinusCircle className="h-3 w-3" /> Not Paid</>
+                            ) : paid.shortfall > 0 ? (
+                              <><AlertTriangle className="h-3 w-3" /> {formatCurrency(paid.amount_paid)} · shortfall {formatCurrency(paid.shortfall)}</>
+                            ) : (
+                              <><CheckCircle2 className="h-3 w-3" /> Paid {formatCurrency(paid.amount_paid)}</>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Action */}
+                      {loan.completedToday ? (
+                        <span className="shrink-0 flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700">
+                          <Trophy className="h-3 w-3" /> Completed
+                        </span>
+                      ) : loan.isNewThisWeek ? (
+                        <span className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-full bg-blue-100 text-blue-600">
+                          Next Week
+                        </span>
+                      ) : !paid ? (
+                        <Button size="sm" asChild className="shrink-0 rounded-xl h-9 px-4">
+                          <Link href={`/staff/payment/new?loanId=${loan.id}&memberId=${member?.id}&principal=${loan.principal ?? 0}&weekly=${loan.weekly_payment}&balance=${loan.loan_balance}&prevShortfall=${loan.prevAlert?.netOwed ?? 0}`}>
+                            Collect
+                          </Link>
+                        </Button>
+                      ) : (
+                        <span className={`shrink-0 text-xs font-bold px-3 py-1.5 rounded-full ${
+                          paid.is_not_paid ? 'bg-red-100 text-red-600' :
+                          paid.shortfall > 0 ? 'bg-amber-100 text-amber-700' :
+                          'bg-green-100 text-green-700'
+                        }`}>
+                          {paid.is_not_paid ? 'N/P' : 'Done'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Empty state */}
-        {Object.values(loanGroups).every((g) => g.length === 0) && (
+        {memberLoans.length === 0 && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-10 text-center">
             <p className="font-semibold text-gray-600">No active loan members</p>
             <p className="text-xs text-muted-foreground mt-1">This center has no active loans.</p>
@@ -389,7 +369,7 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-gray-700 text-sm">{m.full_name}</p>
-                    <p className="text-xs text-gray-400">#{m.member_number} · {m.plans.map(p => p === 5000 ? '5K' : p === 10000 ? '10K' : '20K').join(', ')} completed</p>
+                    <p className="text-xs text-gray-400">#{m.member_number} · {m.principals.length} loan{m.principals.length > 1 ? 's' : ''} completed</p>
                   </div>
                   <span className="shrink-0 flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700">
                     <Trophy className="h-3 w-3" /> Done

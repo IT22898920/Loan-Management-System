@@ -18,6 +18,8 @@ export interface Center {
   id: string;
   name: string;
   center_number: number;
+  collection_day: DayOfWeek | null;
+  manager_name: string | null;
   created_at: string;
 }
 
@@ -34,6 +36,7 @@ export interface Member {
   id: string;
   member_number: string;
   full_name: string;
+  phone: string | null;
   photo_url: string | null;
   center_id: string;
   created_by: string;
@@ -45,8 +48,14 @@ export interface Member {
 export interface Loan {
   id: string;
   member_id: string;
-  loan_plan: LoanPlan;
-  loan_balance: number;
+  loan_plan: number | null;        // legacy preset (5000/10000/20000) or null for custom/imported
+  principal: number | null;        // amount lent
+  interest: number | null;         // interest added
+  original_balance: number | null; // principal + interest at issue
+  product_type: number | null;     // source "Type" tier 1..5
+  cycle_no: number | null;         // 1 = first loan, ascending per member
+  source: string | null;           // 'import' for migrated rows
+  loan_balance: number;            // CURRENT outstanding (decrements with payments)
   weekly_payment: number;
   issued_date: string;
   status: LoanStatus;
@@ -60,11 +69,13 @@ export interface Payment {
   id: string;
   loan_id: string;
   member_id: string;
-  staff_id: string;
+  staff_id: string | null;
   amount_paid: number;
   is_not_paid: boolean;
   shortfall: number;
   payment_date: string;
+  marker: string | null;        // 'N/P' | 'NEW' | 'N/A' etc. (mainly on imported rows)
+  source: string | null;        // 'import' for migrated rows
   gps_lat: number | null;
   gps_lng: number | null;
   gps_address: string | null;
@@ -105,18 +116,11 @@ export const DAYS_OF_WEEK: { value: DayOfWeek; label: string }[] = [
 ];
 
 export const TODAY_DAY_OF_WEEK = (): DayOfWeek | null => {
-  // TEST OVERRIDE — remove after testing
-  return 'monday';
-
-  const day = new Date().getDay(); // eslint-disable-line no-unreachable
-  const map: Record<number, DayOfWeek | null> = {
-    0: null, // Sunday
-    1: 'monday',
-    2: 'tuesday',
-    3: 'wednesday',
-    4: 'thursday',
-    5: null, // Friday
-    6: null, // Saturday
-  };
-  return map[day] ?? null;
+  // Weekday in Asia/Colombo, independent of host TZ — must match the DB RLS
+  // day-gating (now() at time zone 'Asia/Colombo'). Working days: Mon–Thu.
+  const wd = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Colombo', weekday: 'long' })
+    .format(new Date())
+    .toLowerCase();
+  const working: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday'];
+  return (working as string[]).includes(wd) ? (wd as DayOfWeek) : null;
 };

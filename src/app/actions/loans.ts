@@ -2,14 +2,17 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import { getLoanBalance, getWeeklyPayment } from '@/lib/loan-calculations';
-import { LoanPlan } from '@/types';
 import { getTodayString } from '@/lib/utils';
 import { z } from 'zod';
 
+// Real DIRIYALANKA loans have arbitrary principal + interest + weekly due.
+// member_id (uuid) is used (member_number is no longer globally unique).
 const newLoanSchema = z.object({
-  member_number: z.string().min(1),
-  loan_plan: z.coerce.number().refine((v) => [5000, 10000, 20000].includes(v)) as z.ZodType<LoanPlan>,
+  member_id: z.string().uuid(),
+  principal: z.coerce.number().positive(),
+  interest: z.coerce.number().min(0),
+  weekly_payment: z.coerce.number().positive(),
+  product_type: z.coerce.number().int().optional(),
 });
 
 export async function createLoanAction(formData: FormData) {
@@ -18,36 +21,45 @@ export async function createLoanAction(formData: FormData) {
   if (!user) return { error: 'Unauthorized' };
 
   const parsed = newLoanSchema.safeParse({
-    member_number: formData.get('member_number'),
-    loan_plan: formData.get('loan_plan'),
+    member_id: formData.get('member_id'),
+    principal: formData.get('principal'),
+    interest: formData.get('interest'),
+    weekly_payment: formData.get('weekly_payment'),
+    product_type: formData.get('product_type') || undefined,
   });
 
   if (!parsed.success) return { error: parsed.error.errors[0].message };
 
-  // Find member
+  // Verify member exists
   const { data: member, error: mErr } = await supabase
     .from('members')
     .select('id')
-    .eq('member_number', parsed.data.member_number)
+    .eq('id', parsed.data.member_id)
     .single();
 
-  if (mErr || !member) return { error: 'Member not found with that member number.' };
+  if (mErr || !member) return { error: 'Member not found.' };
 
-  // Check if this is the first loan ever
+  // Cycle number = existing loans for this member + 1
   const { count } = await supabase
     .from('loans')
     .select('*', { count: 'exact', head: true })
     .eq('member_id', member.id);
 
-  const isFirstLoan = (count ?? 0) === 0;
-  const loanBalance = getLoanBalance(parsed.data.loan_plan, isFirstLoan);
-  const weeklyPayment = getWeeklyPayment(parsed.data.loan_plan);
+  const cycleNo = (count ?? 0) + 1;
+  const isFirstLoan = cycleNo === 1;
+  const balance = parsed.data.principal + parsed.data.interest;
 
   const { error } = await supabase.from('loans').insert({
     member_id: member.id,
-    loan_plan: parsed.data.loan_plan,
-    loan_balance: loanBalance,
-    weekly_payment: weeklyPayment,
+    loan_plan: null,
+    principal: parsed.data.principal,
+    interest: parsed.data.interest,
+    original_balance: balance,
+    product_type: parsed.data.product_type ?? null,
+    cycle_no: cycleNo,
+    source: 'app',
+    loan_balance: balance,
+    weekly_payment: parsed.data.weekly_payment,
     issued_date: getTodayString(),
     status: 'active',
     is_first_loan: isFirstLoan,

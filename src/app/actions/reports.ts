@@ -45,14 +45,15 @@ export async function saveReportAction(formData: FormData) {
 
     if (centerIds.length > 0) {
       // Active loans issued before this week (i.e., payment is due today)
-      const { data: dueLoans } = await supabase
+      const { data: dueLoansRaw } = await supabase
         .from('loans')
         .select('id, member:members!inner(full_name, center_id)')
         .eq('status', 'active')
         .in('members.center_id', centerIds)
         .lt('issued_date', weekStart);
 
-      const dueLoanIds = (dueLoans ?? []).map((l: { id: string }) => l.id);
+      const dueLoans = (dueLoansRaw ?? []) as unknown as { id: string; member: { full_name: string; center_id: string } | null }[];
+      const dueLoanIds = dueLoans.map((l) => l.id);
 
       if (dueLoanIds.length > 0) {
         const { data: todayPayments } = await supabase
@@ -63,11 +64,11 @@ export async function saveReportAction(formData: FormData) {
           .eq('payment_date', today);
 
         const recordedLoanIds = new Set((todayPayments ?? []).map((p: { loan_id: string }) => p.loan_id));
-        const missing = (dueLoans ?? []).filter((l: { id: string }) => !recordedLoanIds.has(l.id));
+        const missing = dueLoans.filter((l) => !recordedLoanIds.has(l.id));
 
         if (missing.length > 0) {
           const names = missing
-            .map((l: { member: { full_name: string } | null }) => l.member?.full_name ?? 'Unknown')
+            .map((l) => l.member?.full_name ?? 'Unknown')
             .join(', ');
           return { error: `පහත members ගේ payment records නැත — submit කිරීමට පෙර Paid/Shortfall/N/P ලෙස සටහන් කරන්න:\n${names}` };
         }

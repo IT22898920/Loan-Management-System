@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Building2, Loader2, Hash, Search, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Building2, Loader2, Hash, Search, X, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,6 +12,7 @@ import { Center } from '@/types';
 import { createCenterAction, updateCenterAction, deleteCenterAction } from '@/app/actions/centers';
 
 export default function CentersPage() {
+  const router = useRouter();
   const [centers, setCenters] = useState<Center[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Center | null>(null);
@@ -139,33 +141,40 @@ export default function CentersPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filtered.map((center, i) => (
-              <div key={center.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-all group">
+              <div
+                key={center.id}
+                onClick={() => router.push(`/admin/centers/${center.id}`)}
+                className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md hover:border-primary/30 transition-all group cursor-pointer"
+              >
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
                     <div className={`w-11 h-11 rounded-xl ${colors[i % colors.length]} flex items-center justify-center`}>
                       <Building2 className="h-5 w-5 text-white" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-gray-900">{center.name}</h3>
+                      <h3 className="font-semibold text-gray-900 group-hover:text-primary transition-colors">{center.name}</h3>
                       <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
                         <Hash className="h-3 w-3" />
                         Center {center.center_number}
                       </div>
                     </div>
                   </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => { setEditing(center); setShowForm(false); }}
-                      className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(center.id, center.name)}
-                      className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                  <div className="flex items-center gap-1">
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setEditing(center); setShowForm(false); }}
+                        className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDelete(center.id, center.name); }}
+                        className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-primary transition-colors" />
                   </div>
                 </div>
               </div>
