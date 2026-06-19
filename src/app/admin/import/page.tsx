@@ -202,7 +202,7 @@ export default function ImportPage() {
 
         {/* Upload area */}
         {status === 'idle' && (
-          <div className="bg-white rounded-2xl shadow-sm border-2 border-dashed border-gray-200 p-16 text-center hover:border-primary/40 transition-colors">
+          <div className="bg-white rounded-2xl shadow-sm border-2 border-dashed border-gray-200 p-8 sm:p-16 text-center hover:border-primary/40 transition-colors">
             <FileSpreadsheet className="h-14 w-14 text-gray-200 mx-auto mb-4" />
             <p className="text-lg font-semibold text-gray-700 mb-1">Upload Excel File</p>
             <p className="text-muted-foreground text-sm mb-6">.xlsx or .xls format supported</p>
@@ -224,12 +224,12 @@ export default function ImportPage() {
 
         {status === 'preview' && rows.length > 0 && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
+            <div className="px-5 py-4 border-b border-gray-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
                 <h2 className="font-semibold text-gray-900">Preview — {rows.length} records</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">Review before importing to the database</p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 w-full sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none">
                 <Button variant="outline" className="rounded-xl" onClick={() => setStatus('idle')}>Cancel</Button>
                 <Button className="rounded-xl" onClick={handleImport}>
                   <Database className="h-4 w-4 mr-2" /> Import {rows.length} Records

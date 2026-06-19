@@ -215,12 +215,12 @@ export default function PaymentsPage() {
           </div>
 
           <select value={centerFilter} onChange={(e) => setCenterFilter(e.target.value)}
-            className="bg-white border border-gray-200 rounded-xl px-3 py-1.5 text-xs text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
+            className="w-full sm:w-auto bg-white border border-gray-200 rounded-xl px-3 py-1.5 text-xs text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
             <option value="">All Centers</option>
             {centers.map((c) => (<option key={c.id} value={c.id}>{c.name} (#{c.center_number})</option>))}
           </select>
 
-          <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-1.5 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-1.5 shadow-sm w-full sm:w-auto">
             <Filter className="h-3.5 w-3.5 text-muted-foreground" />
             <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="text-xs text-gray-700 bg-transparent focus:outline-none" />
             <span className="text-muted-foreground text-xs">to</span>
@@ -233,7 +233,7 @@ export default function PaymentsPage() {
             </button>
           )}
           {summary && (
-            <span className="text-sm text-muted-foreground ml-auto">
+            <span className="text-sm text-muted-foreground w-full sm:w-auto sm:ml-auto">
               Showing <span className="font-semibold text-gray-900">{payments.length.toLocaleString()}</span> of {summary.total.toLocaleString()}
             </span>
           )}

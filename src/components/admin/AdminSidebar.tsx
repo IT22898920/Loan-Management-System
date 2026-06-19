@@ -62,9 +62,9 @@ function SidebarContent({
             </button>
           )}
 
-          {/* Mobile close */}
+          {/* Mobile/tablet close */}
           {onClose && (
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 md:hidden shrink-0">
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 lg:hidden shrink-0">
               <X className="h-5 w-5" />
             </button>
           )}
@@ -134,8 +134,8 @@ export default function AdminSidebar({ profile }: { profile: Profile }) {
 
   return (
     <>
-      {/* Mobile top bar */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-white border-b px-4 h-14 flex items-center justify-between shadow-sm">
+      {/* Mobile + tablet top bar */}
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-white border-b px-4 h-14 flex items-center justify-between shadow-sm">
         <button onClick={() => setOpen(true)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600">
           <Menu className="h-5 w-5" />
         </button>
@@ -146,9 +146,9 @@ export default function AdminSidebar({ profile }: { profile: Profile }) {
         <div className="w-9" />
       </div>
 
-      {/* Mobile drawer overlay */}
+      {/* Mobile + tablet drawer overlay */}
       {open && (
-        <div className="fixed inset-0 z-50 md:hidden" onClick={() => setOpen(false)}>
+        <div className="fixed inset-0 z-50 lg:hidden" onClick={() => setOpen(false)}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
           <div className="absolute left-0 top-0 bottom-0 w-72 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <SidebarContent profile={profile} onClose={() => setOpen(false)} />
@@ -156,10 +156,10 @@ export default function AdminSidebar({ profile }: { profile: Profile }) {
         </div>
       )}
 
-      {/* Desktop sidebar (collapsible) */}
+      {/* Desktop sidebar (collapsible) — lg+ only; tablet uses the drawer */}
       <aside
         className={cn(
-          'hidden md:flex bg-white border-r flex-col shadow-sm shrink-0 transition-[width] duration-200 ease-in-out',
+          'hidden lg:flex bg-white border-r flex-col shadow-sm shrink-0 transition-[width] duration-200 ease-in-out',
           collapsed ? 'w-16' : 'w-64'
         )}
       >

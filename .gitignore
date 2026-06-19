@@ -45,8 +45,11 @@ next-env.d.ts
 # migration/import/e2e helper scripts contain hardcoded credentials
 /scripts/_*.py
 /scripts/_*.cjs
-/scripts/run-migrations.mjs
+/scripts/*.mjs
 __pycache__/
+# Netlify local state
+/.netlify/
+deno.lock
 # source Excel/docs with sensitive content
 *.xlsx
 *.xls

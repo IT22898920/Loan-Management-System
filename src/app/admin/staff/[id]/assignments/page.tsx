@@ -254,7 +254,7 @@ export default function StaffAssignmentsPage() {
         </div>
 
         {/* Stats */}
-        <div className="mt-5 flex gap-3">
+        <div className="mt-5 flex flex-wrap gap-3">
           <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-2.5 border border-white/20">
             <span className="text-blue-200 text-xs">Selected: </span>
             <span className="font-bold">{selected.length}</span>
@@ -384,7 +384,7 @@ export default function StaffAssignmentsPage() {
             )}
           </div>
           {filtersActive && (
-            <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 text-xs text-gray-600">
+            <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600">
               <Info className="h-3.5 w-3.5 text-blue-500" />
               Showing <strong>{visibleCenters.length}</strong> of <strong>{centers.length}</strong> centers
               {staffFilter !== ALL_FILTER && (() => {
@@ -417,10 +417,10 @@ export default function StaffAssignmentsPage() {
                 <button onClick={resetFilters} className="text-xs text-primary hover:underline mt-2">Clear filters</button>
               </div>
             ) : (
-            <table className="w-full border-collapse min-w-[500px]">
+            <table className="w-full border-collapse min-w-[420px] sm:min-w-[500px]">
               <thead>
                 <tr>
-                  <th className="text-left py-3 px-3 font-medium text-gray-500 text-xs uppercase tracking-wider border-b border-gray-100 w-48">
+                  <th className="text-left py-3 px-3 font-medium text-gray-500 text-xs uppercase tracking-wider border-b border-gray-100 w-32 sm:w-48">
                     Center
                   </th>
                   {visibleDays.map(({ value, label }) => (

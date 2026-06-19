@@ -231,7 +231,7 @@ export default function AdminReportsPage() {
         <h1 className="text-2xl md:text-3xl font-bold">Daily Reports</h1>
         <p className="text-blue-200 text-sm mt-1">Staff-submitted daily collection reports</p>
 
-        <div className="mt-5 grid grid-cols-3 gap-3 max-w-xs">
+        <div className="mt-5 grid grid-cols-3 gap-2 sm:gap-3 max-w-md">
           <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-3 border border-white/20">
             <p className="text-blue-200 text-xs">Showing</p>
             <p className="text-xl font-bold mt-0.5">{loading ? '—' : filtered.length}</p>
@@ -290,12 +290,12 @@ export default function AdminReportsPage() {
         </div>
 
         {/* Date range filter */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm">
             <Filter className="h-3.5 w-3.5 text-muted-foreground" />
-            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="text-xs text-gray-700 bg-transparent focus:outline-none" />
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="text-xs text-gray-700 bg-transparent focus:outline-none min-w-0 flex-1 sm:flex-none" />
             <span className="text-muted-foreground text-xs">to</span>
-            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="text-xs text-gray-700 bg-transparent focus:outline-none" />
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="text-xs text-gray-700 bg-transparent focus:outline-none min-w-0 flex-1 sm:flex-none" />
           </div>
           {hasFilters && (
             <button onClick={() => { setSearch(''); setStatusFilter('all'); setDateFrom(''); setDateTo(''); }}
@@ -304,7 +304,7 @@ export default function AdminReportsPage() {
             </button>
           )}
           {hasFilters && (
-            <span className="text-sm text-muted-foreground ml-auto">
+            <span className="text-sm text-muted-foreground sm:ml-auto">
               <span className="font-semibold text-gray-900">{filtered.length}</span> of {reports.length} reports
             </span>
           )}
@@ -405,8 +405,8 @@ export default function AdminReportsPage() {
                   {/* Collection table */}
                   <div>
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Collection Summary</p>
-                    <div className="rounded-xl border border-gray-100 overflow-hidden">
-                      <table className="w-full text-sm">
+                    <div className="rounded-xl border border-gray-100 overflow-x-auto">
+                      <table className="w-full min-w-[480px] text-sm">
                         <thead className="bg-gray-50 border-b border-gray-100">
                           <tr>
                             <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Center</th>
@@ -449,7 +449,7 @@ export default function AdminReportsPage() {
                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
                         <Banknote className="h-3.5 w-3.5" /> Loans Issued ({viewIssuedLoans.length})
                       </p>
-                      <div className="rounded-xl border border-blue-100 overflow-hidden">
+                      <div className="rounded-xl border border-blue-100 overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead className="bg-blue-50 border-b border-blue-100">
                             <tr>

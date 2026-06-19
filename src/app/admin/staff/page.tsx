@@ -72,7 +72,7 @@ export default function StaffPage() {
 
       <div className="px-4 md:px-8 py-6 space-y-4">
         {/* Toolbar */}
-        <div className="flex gap-3">
+        <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <input
@@ -90,7 +90,7 @@ export default function StaffPage() {
           </div>
           <Link
             href="/admin/staff/new"
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium shadow-sm hover:bg-primary/90 transition-all whitespace-nowrap"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium shadow-sm hover:bg-primary/90 transition-all whitespace-nowrap"
           >
             <Plus className="h-4 w-4" /> Add Staff
           </Link>
@@ -134,12 +134,12 @@ export default function StaffPage() {
                       <div className={`w-11 h-11 rounded-xl ${COLORS[i % COLORS.length]} flex items-center justify-center text-white font-bold text-lg shrink-0`}>
                         {member.full_name.charAt(0).toUpperCase()}
                       </div>
-                      <div>
-                        <p className="font-semibold text-gray-900">{member.full_name}</p>
-                        <p className="text-xs text-muted-foreground">{member.email}</p>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900 truncate">{member.full_name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{member.email}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <Link
                         href={`/admin/staff/${member.id}/edit`}
                         title="Edit staff details"
@@ -156,7 +156,7 @@ export default function StaffPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-4 gap-1.5">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                     {byDay.map(({ day, label, centers }) => (
                       <div
                         key={day}

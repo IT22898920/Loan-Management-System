@@ -124,11 +124,11 @@ export default async function AdminDashboardPage() {
           <p className="text-blue-200 text-sm mt-1">Loan Management System — Admin Panel</p>
 
           {/* Hero stats */}
-          <div className="mt-6 grid grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-3 [&>div]:min-w-0">
+          <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 [&>div]:min-w-0">
             <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
               <p className="text-blue-200 text-xs font-medium">Today&apos;s Collection</p>
               <p className="text-xl xl:text-2xl font-bold mt-1 leading-tight break-words tabular-nums">{lkr(todayTotal)}</p>
-              <div className="flex items-center gap-3 mt-2 text-xs text-blue-200">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs text-blue-200">
                 <span className="flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-green-300" />{todayPaidCount} paid</span>
                 <span className="flex items-center gap-1"><XCircle className="h-3 w-3 text-red-300" />{todayNPCount} N/P</span>
               </div>
@@ -234,14 +234,14 @@ export default async function AdminDashboardPage() {
                     const colors = ['bg-blue-500', 'bg-violet-500', 'bg-emerald-500', 'bg-orange-500', 'bg-pink-500'];
                     return (
                       <div key={name}>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <div className="flex items-center gap-2">
-                            <div className={`w-7 h-7 rounded-full ${colors[i % colors.length]} flex items-center justify-center text-white text-xs font-bold`}>
+                        <div className="flex items-center justify-between mb-1.5 gap-2">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <div className={`w-7 h-7 rounded-full ${colors[i % colors.length]} flex items-center justify-center text-white text-xs font-bold shrink-0`}>
                               {name.charAt(0).toUpperCase()}
                             </div>
-                            <span className="text-sm font-medium text-gray-800">{name}</span>
+                            <span className="text-sm font-medium text-gray-800 truncate">{name}</span>
                           </div>
-                          <span className="text-sm font-semibold text-gray-900">{formatCurrency(amount)}</span>
+                          <span className="text-sm font-semibold text-gray-900 shrink-0">{formatCurrency(amount)}</span>
                         </div>
                         <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                           <div
@@ -319,14 +319,14 @@ export default async function AdminDashboardPage() {
                 const loan = p.loan as unknown as { principal: number | null } | null;
                 const planLabel = loan?.principal ? `${Math.round(loan.principal / 1000)}K` : '—';
                 return (
-                  <div key={i} className="px-5 py-3 flex items-center justify-between hover:bg-gray-50/50">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 text-xs font-bold">
+                  <div key={i} className="px-5 py-3 flex items-center justify-between gap-2 hover:bg-gray-50/50">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 text-xs font-bold shrink-0">
                         {member?.full_name?.charAt(0) ?? '?'}
                       </div>
-                      <span className="text-sm font-medium text-gray-800">{member?.full_name}</span>
+                      <span className="text-sm font-medium text-gray-800 truncate">{member?.full_name}</span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                       <Badge variant="outline" className="text-xs text-gray-500">{planLabel}</Badge>
                       <Badge variant="warning" className="text-xs">
                         -{formatCurrency(p.shortfall)}

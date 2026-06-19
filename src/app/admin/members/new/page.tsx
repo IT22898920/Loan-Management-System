@@ -87,7 +87,7 @@ export default function NewMemberPage() {
               </label>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="member_number">Member Number *</Label>
                 <Input id="member_number" name="member_number" required placeholder="e.g. 001" className="rounded-xl" />

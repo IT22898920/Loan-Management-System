@@ -63,11 +63,11 @@ export default function NewStaffPage() {
                 <Label htmlFor="password">Initial Password *</Label>
                 <Input id="password" name="password" type="password" required placeholder="Min. 8 characters" minLength={8} className="rounded-xl" />
               </div>
-              <div className="flex gap-3 pt-2">
-                <Button type="submit" disabled={saving} className="rounded-xl">
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                <Button type="submit" disabled={saving} className="rounded-xl w-full sm:w-auto">
                   {saving ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Creating...</> : 'Create Account'}
                 </Button>
-                <Button type="button" variant="outline" className="rounded-xl" asChild>
+                <Button type="button" variant="outline" className="rounded-xl w-full sm:w-auto" asChild>
                   <Link href="/admin/staff">Cancel</Link>
                 </Button>
               </div>

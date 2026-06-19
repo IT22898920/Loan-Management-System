@@ -72,7 +72,7 @@ export default function CentersPage() {
 
       <div className="px-4 md:px-8 py-6 space-y-5">
         {/* Toolbar */}
-        <div className="flex gap-3">
+        <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <input
@@ -90,7 +90,7 @@ export default function CentersPage() {
           </div>
           <Button
             onClick={() => { setEditing(null); setShowForm(true); }}
-            className="rounded-xl shadow-sm"
+            className="rounded-xl shadow-sm w-full sm:w-auto"
           >
             <Plus className="h-4 w-4 mr-2" /> Add Center
           </Button>
@@ -160,7 +160,7 @@ export default function CentersPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                       <button
                         onClick={(e) => { e.stopPropagation(); setEditing(center); setShowForm(false); }}
                         className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"

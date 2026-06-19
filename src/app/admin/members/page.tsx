@@ -220,7 +220,7 @@ export default function MembersPage() {
       <div className="bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 text-white px-4 md:px-8 py-6 md:py-8">
         <p className="text-blue-200 text-sm font-medium mb-1">Management</p>
         <h1 className="text-2xl md:text-3xl font-bold">Members</h1>
-        <div className="mt-4 grid grid-cols-4 gap-3 max-w-sm">
+        <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 max-w-2xl">
           <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-3 border border-white/20">
             <p className="text-blue-200 text-xs">Total</p>
             <p className="text-xl font-bold mt-0.5">{loading ? '—' : members.length}</p>
@@ -246,7 +246,7 @@ export default function MembersPage() {
 
       <div className="px-4 md:px-8 py-6 space-y-4">
         {/* Toolbar */}
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex flex-col lg:flex-row lg:items-center gap-3 flex-wrap">
           {/* Search */}
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -265,7 +265,7 @@ export default function MembersPage() {
           </div>
 
           {/* Status filter */}
-          <div className="flex gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm flex-wrap">
+          <div className="flex gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm flex-wrap overflow-x-auto">
             {(['all', 'active', 'none', 'alert', 'critical'] as const).map((v) => (
               <button
                 key={v}
@@ -296,6 +296,7 @@ export default function MembersPage() {
           </div>
 
           {/* Export buttons */}
+          <div className="flex gap-2 lg:ml-auto [&>*]:flex-1 sm:[&>*]:flex-none [&>*]:justify-center">
           <button
             onClick={exportCSV}
             disabled={filtered.length === 0}
@@ -316,6 +317,7 @@ export default function MembersPage() {
           >
             <Plus className="h-4 w-4" /> Add Member
           </Link>
+          </div>
         </div>
 
         {/* Day sub-filter — shown only when N/P & Shortfall is active */}
@@ -459,7 +461,7 @@ export default function MembersPage() {
                         <td className="px-5 py-4">
                           <Link
                             href={`/admin/members/${member.id}`}
-                            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
                           >
                             View <ArrowRight className="h-3 w-3" />
                           </Link>

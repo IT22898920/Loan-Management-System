@@ -65,7 +65,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
         </div>
 
         {/* Stats */}
-        <div className="mt-5 grid grid-cols-3 gap-3 max-w-sm">
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-sm sm:max-w-md">
           <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-3 border border-white/20">
             <p className="text-blue-200 text-xs">Active Loans</p>
             <p className="text-xl font-bold mt-0.5">{activeLoans.length}</p>
@@ -92,13 +92,13 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
         {loans.map((loan) => (
           <div key={loan.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             {/* Loan header */}
-            <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
+            <div className="px-5 py-4 border-b border-gray-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${loan.status === 'active' ? 'bg-blue-50' : 'bg-gray-50'}`}>
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${loan.status === 'active' ? 'bg-blue-50' : 'bg-gray-50'}`}>
                   <CreditCard className={`h-5 w-5 ${loan.status === 'active' ? 'text-blue-600' : 'text-gray-400'}`} />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-semibold text-gray-900">Rs. {(loan.principal ?? loan.original_balance ?? loan.loan_balance).toLocaleString()} Loan</h3>
                     {loan.is_first_loan && (
                       <span className="text-xs px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 font-medium">First Loan</span>
@@ -156,7 +156,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                   <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                     {display.map((p) => (
                       <div key={p.id} className="bg-gray-50 rounded-xl px-3 py-2.5 space-y-1.5">
-                        <div className="flex items-center justify-between">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2">
                           <div className="flex items-center gap-2.5">
                             {p.is_not_paid ? (
                               <div className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center shrink-0">
@@ -173,7 +173,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                             )}
                             <span className="text-xs text-muted-foreground">{formatDate(p.payment_date)}</span>
                           </div>
-                          <div className="flex items-center gap-3">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 sm:justify-end pl-8 sm:pl-0">
                             {p.gps_lat && p.gps_lng ? (
                               <a
                                 href={`https://www.google.com/maps?q=${p.gps_lat},${p.gps_lng}`}
@@ -196,7 +196,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                               </span>
                             )}
                             {/* Running balance after this payment */}
-                            <span className="text-xs text-muted-foreground border-l border-gray-200 pl-3">
+                            <span className="text-xs text-muted-foreground sm:border-l sm:border-gray-200 sm:pl-3">
                               L/B: <span className="font-semibold text-gray-700">{formatCurrency(p.balanceAfter)}</span>
                             </span>
                           </div>

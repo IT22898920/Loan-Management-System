@@ -73,7 +73,7 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
         </div>
 
         {/* Stats */}
-        <div className="mt-5 grid grid-cols-3 gap-3 max-w-lg">
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-lg">
           <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-3 border border-white/20">
             <p className="text-blue-200 text-xs">Members</p>
             <p className="text-xl font-bold mt-0.5">{members.length}</p>
@@ -84,7 +84,7 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
           </div>
           <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-3 border border-white/20">
             <p className="text-blue-200 text-xs">Outstanding</p>
-            <p className="text-lg font-bold mt-0.5">{formatCurrency(totalOutstanding)}</p>
+            <p className="text-base sm:text-lg font-bold mt-0.5 break-words tabular-nums">{formatCurrency(totalOutstanding)}</p>
           </div>
         </div>
       </div>
