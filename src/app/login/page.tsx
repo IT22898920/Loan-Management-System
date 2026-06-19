@@ -23,6 +23,13 @@ export default function LoginPage() {
     setLoading(false);
     if (result?.error) { toast.error(result.error); return; }
     if (result?.success) {
+      // Admin 2FA path: password verified, OTP sent to email — go enter it.
+      if (result?.requiresOtp) {
+        toast.success('Verification code sent to your email.');
+        router.push(result.redirectTo);
+        return;
+      }
+      // Staff: fully logged in by password
       try {
         localStorage.setItem(LOGIN_START_KEY, Date.now().toString());
       } catch {}

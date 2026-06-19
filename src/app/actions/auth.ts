@@ -103,9 +103,37 @@ export async function loginAction(formData: FormData) {
     .eq('id', data.user.id)
     .single();
 
+  // Admin accounts require email OTP 2FA — password alone is not enough.
+  // 1. Sign out the password session immediately (don't leave a half-authed cookie)
+  // 2. Send a 6-digit OTP to the same email
+  // 3. Redirect to /verify-otp where the OTP completes the login
+  if (profile?.role === 'admin') {
+    await supabase.auth.signOut();
+
+    const { error: otpErr } = await supabase.auth.signInWithOtp({
+      email: parsed.data.email,
+      options: { shouldCreateUser: false },
+    });
+    if (otpErr) {
+      console.error('[loginAction] OTP send failed', {
+        email: parsed.data.email,
+        message: otpErr.message,
+      });
+      return { error: 'Could not send verification code. Please try again.' };
+    }
+
+    return {
+      success: true,
+      requiresOtp: true,
+      email: parsed.data.email,
+      redirectTo: '/verify-otp?email=' + encodeURIComponent(parsed.data.email),
+    };
+  }
+
+  // Staff: password is sufficient, session already created.
   return {
     success: true,
-    redirectTo: profile?.role === 'admin' ? '/admin/dashboard' : '/staff/dashboard',
+    redirectTo: '/staff/dashboard',
   };
 }
 
@@ -187,6 +215,38 @@ export async function logoutAction() {
   const supabase = await createClient();
   await supabase.auth.signOut();
   redirect('/login');
+}
+
+// Resend OTP — only re-issues a code for an email that already exists. We never
+// reveal whether the email is registered, to prevent enumeration.
+const resendThrottle = new Map<string, number>();
+const RESEND_COOLDOWN_MS = 60 * 1000; // 60s between resends per email
+
+export async function resendOtpAction(email: string) {
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    return { error: 'Invalid email.' };
+  }
+
+  const key = email.toLowerCase();
+  const now = Date.now();
+  const last = resendThrottle.get(key) ?? 0;
+  if (now - last < RESEND_COOLDOWN_MS) {
+    const wait = Math.ceil((RESEND_COOLDOWN_MS - (now - last)) / 1000);
+    return { error: 'Please wait ' + wait + ' seconds before requesting a new code.' };
+  }
+  resendThrottle.set(key, now);
+
+  const supabase = await createClient();
+  // shouldCreateUser:false — never create a new account from a resend request.
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { shouldCreateUser: false },
+  });
+  if (error) {
+    console.error('[resendOtpAction] OTP resend failed', { email, message: error.message });
+    // Generic success — don't leak whether the email is registered
+  }
+  return { success: true };
 }
 
 export async function changePasswordAction(formData: FormData) {
