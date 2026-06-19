@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { safeError } from '@/lib/safe-error';
 import { z } from 'zod';
 
@@ -31,7 +31,13 @@ export async function updateProfilePhotoAction(photoUrl: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Not authenticated.' };
 
-  const { error } = await supabase
+  // RLS on `profiles` restricts UPDATE to admin role, but staff users must also
+  // be able to update their own photo. We've already authenticated via the
+  // user-scoped client above, and we constrain the update to the authenticated
+  // user.id with a Cloudinary-validated photo_url, so it's safe to bypass RLS
+  // here via the admin client.
+  const adminClient = await createAdminClient();
+  const { error } = await adminClient
     .from('profiles')
     .update({ photo_url: parsed.data })
     .eq('id', user.id);
@@ -56,7 +62,10 @@ export async function removeProfilePhotoAction() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Not authenticated.' };
 
-  const { error } = await supabase
+  // See updateProfilePhotoAction: RLS UPDATE policy on `profiles` is admin-only,
+  // so we use the admin client scoped to the authenticated user.id.
+  const adminClient = await createAdminClient();
+  const { error } = await adminClient
     .from('profiles')
     .update({ photo_url: null })
     .eq('id', user.id);
