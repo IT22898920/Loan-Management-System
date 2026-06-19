@@ -11,6 +11,7 @@ export interface Profile {
   role: UserRole;
   full_name: string;
   email: string;
+  photo_url: string | null;
   created_at: string;
 }
 

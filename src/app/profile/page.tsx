@@ -9,11 +9,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { changePasswordAction } from '@/app/actions/auth';
 import { createClient } from '@/lib/supabase/client';
+import ProfilePhotoUpload from '@/components/ProfilePhotoUpload';
 
 interface UserProfile {
   full_name: string;
   email: string;
   role: string;
+  photo_url: string | null;
 }
 
 export default function ProfilePage() {
@@ -26,8 +28,19 @@ export default function ProfilePage() {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await supabase.from('profiles').select('full_name, role').eq('id', user.id).single();
-      if (data) setProfile({ full_name: data.full_name, email: user.email ?? '', role: data.role });
+      const { data } = await supabase
+        .from('profiles')
+        .select('full_name, role, photo_url')
+        .eq('id', user.id)
+        .single();
+      if (data) {
+        setProfile({
+          full_name: data.full_name,
+          email: user.email ?? '',
+          role: data.role,
+          photo_url: data.photo_url ?? null,
+        });
+      }
     }
     load();
   }, []);
@@ -67,9 +80,18 @@ export default function ProfilePage() {
         </button>
 
         <div className="flex items-center gap-4 mb-5">
-          <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-sm border border-white/30 flex items-center justify-center text-2xl font-bold">
-            {profile?.full_name?.charAt(0).toUpperCase() ?? '?'}
-          </div>
+          {profile?.photo_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={profile.photo_url}
+              alt={profile.full_name + ' photo'}
+              className="w-14 h-14 rounded-2xl object-cover border border-white/30"
+            />
+          ) : (
+            <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-sm border border-white/30 flex items-center justify-center text-2xl font-bold">
+              {profile?.full_name?.charAt(0).toUpperCase() ?? '?'}
+            </div>
+          )}
           <div>
             <h1 className="text-2xl font-bold">{profile?.full_name ?? '...'}</h1>
             <p className="text-blue-200 text-sm">{profile?.email}</p>
@@ -94,7 +116,28 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      <div className="px-4 py-6 max-w-lg mx-auto">
+      <div className="px-4 py-6 max-w-lg mx-auto space-y-4">
+        {/* Profile Photo Card */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-50 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-violet-50 flex items-center justify-center">
+              <User className="h-5 w-5 text-violet-600" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-gray-900">Profile Photo</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">Shown across the system to identify you.</p>
+            </div>
+          </div>
+          <div className="p-5">
+            {profile && (
+              <ProfilePhotoUpload
+                initialPhotoUrl={profile.photo_url}
+                fullName={profile.full_name}
+              />
+            )}
+          </div>
+        </div>
+
         {/* Password Change Card */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-50 flex items-center gap-3">
@@ -141,7 +184,7 @@ export default function ProfilePage() {
         </div>
 
         {/* Account info card */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mt-4">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-50 flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center">
               <User className="h-5 w-5 text-gray-500" />

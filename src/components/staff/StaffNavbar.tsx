@@ -23,9 +23,18 @@ export default function StaffNavbar({ profile }: { profile: Profile }) {
       {/* Top bar */}
       <div className="fixed top-0 left-0 right-0 z-40 bg-white border-b px-4 h-14 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-2.5">
-          <div className="bg-gray-50 rounded-xl border border-gray-100 p-1 shrink-0">
-            <Image src="/logo.jpg" alt="DIRIYALANKA" width={26} height={26} className="object-contain" />
-          </div>
+          {profile.photo_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={profile.photo_url}
+              alt={profile.full_name + ' photo'}
+              className="w-9 h-9 rounded-xl object-cover border border-gray-100 shrink-0"
+            />
+          ) : (
+            <div className="bg-gray-50 rounded-xl border border-gray-100 p-1 shrink-0">
+              <Image src="/logo.jpg" alt="DIRIYALANKA" width={26} height={26} className="object-contain" />
+            </div>
+          )}
           <div>
             <p className="font-black text-xs text-gray-900 tracking-wide leading-none">DIRIYALANKA</p>
             <p className="text-[10px] text-muted-foreground leading-none mt-0.5 truncate max-w-[140px]">{profile.full_name}</p>
