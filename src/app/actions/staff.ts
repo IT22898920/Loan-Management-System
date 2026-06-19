@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { requireAdmin } from '@/lib/auth-guard';
+import { safeError } from '@/lib/safe-error';
 import { DayOfWeek } from '@/types';
 
 export async function updateStaffAssignmentsAction(
@@ -19,7 +20,7 @@ export async function updateStaffAssignmentsAction(
     .delete()
     .eq('staff_id', staffId);
 
-  if (delErr) return { error: delErr.message };
+  if (delErr) return { error: safeError(delErr, 'Could not clear existing assignments.') };
 
   if (assignments.length === 0) {
     revalidatePath(`/admin/staff/${staffId}/assignments`);
@@ -47,7 +48,7 @@ export async function updateStaffAssignmentsAction(
 
   const { error: insErr } = await supabase.from('staff_center_assignments').insert(rows);
 
-  if (insErr) return { error: insErr.message };
+  if (insErr) return { error: safeError(insErr, 'Could not save assignments.') };
 
   revalidatePath(`/admin/staff/${staffId}/assignments`);
   revalidatePath('/admin/staff');

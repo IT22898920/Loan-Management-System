@@ -34,9 +34,10 @@ export default function StaffNavbar({ profile }: { profile: Profile }) {
         <form action={logoutAction}>
           <button
             type="submit"
-            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-red-600 bg-gray-100 hover:bg-red-50 px-3 py-1.5 rounded-full transition-colors"
+            aria-label="Sign out"
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-red-600 bg-gray-100 hover:bg-red-50 px-3 py-2.5 min-h-[44px] rounded-full transition-colors"
           >
-            <LogOut className="h-3.5 w-3.5" />
+            <LogOut className="h-4 w-4" />
             <span>Sign out</span>
           </button>
         </form>

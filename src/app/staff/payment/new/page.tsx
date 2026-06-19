@@ -1,15 +1,16 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
-import { Loader2, MapPin, ArrowLeft, AlertTriangle, CheckCircle2, Banknote, CircleDollarSign } from 'lucide-react';
+import { Loader2, MapPin, ArrowLeft, AlertTriangle, CheckCircle2, Banknote, CircleDollarSign, User } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { captureLocation } from '@/lib/gps';
 import { recordPaymentAction } from '@/app/actions/payments';
+import { createClient } from '@/lib/supabase/client';
 import { formatCurrency } from '@/lib/utils';
 
 function PaymentForm() {
@@ -28,6 +29,35 @@ function PaymentForm() {
   const [saving, setSaving] = useState(false);
   const [gpsLoading, setGpsLoading] = useState(false);
 
+  // Member identity loaded from DB (prevents same-day cross-center misclicks
+  // where the URL params might point at the wrong loan).
+  const [memberInfo, setMemberInfo] = useState<{
+    full_name: string;
+    member_number: string;
+    center_name: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!memberId) return;
+    let alive = true;
+    (async () => {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from('members')
+        .select('full_name, member_number, center:centers(name)')
+        .eq('id', memberId)
+        .single();
+      if (!alive || !data) return;
+      const center = data.center as unknown as { name: string } | null;
+      setMemberInfo({
+        full_name: data.full_name,
+        member_number: data.member_number,
+        center_name: center?.name ?? null,
+      });
+    })();
+    return () => { alive = false; };
+  }, [memberId]);
+
   const amountNum = parseFloat(amount) || 0;
   const shortfall = !isNotPaid && amountNum > 0 && amountNum < weekly ? weekly - amountNum : 0;
   const willComplete = !isNotPaid && amountNum >= balance;
@@ -44,14 +74,17 @@ function PaymentForm() {
     setSaving(true);
     setGpsLoading(true);
 
-    let gps: { lat: number; lng: number; address: string } | null = null;
+    // GPS coordinates are MANDATORY (client requirement) — block the payment if a
+    // fix can't be obtained. The address lookup is best-effort (it has its own
+    // timeout in reverseGeocode) so a slow geocode never holds up a valid fix.
+    let gps: { lat: number; lng: number; address: string };
     try {
       const loc = await captureLocation();
       gps = { lat: loc.lat, lng: loc.lng, address: loc.address ?? '' };
     } catch {
       setGpsLoading(false);
       setSaving(false);
-      toast.error('GPS location capture failed. Please enable location access and try again.');
+      toast.error('GPS ස්ථානය අවශ්‍යයි — location services on කරන්න.');
       return;
     }
     setGpsLoading(false);
@@ -61,9 +94,9 @@ function PaymentForm() {
     fd.append('member_id', memberId);
     fd.append('amount_paid', isNotPaid ? '0' : amount);
     fd.append('is_not_paid', isNotPaid.toString());
-    fd.append('gps_lat', gps!.lat.toString());
-    fd.append('gps_lng', gps!.lng.toString());
-    fd.append('gps_address', gps!.address);
+    fd.append('gps_lat', gps.lat.toString());
+    fd.append('gps_lng', gps.lng.toString());
+    fd.append('gps_address', gps.address);
 
     const result = await recordPaymentAction(fd);
     setSaving(false);
@@ -74,12 +107,14 @@ function PaymentForm() {
     }
 
     if (result?.isCompleted) {
-      toast.success('Payment recorded! Loan is now COMPLETED.');
+      toast.success('ගෙවීම සටහන් විය! ණය සම්පූර්ණයි!');
     } else {
-      toast.success('Payment recorded successfully!');
+      toast.success('ගෙවීම සටහන් විය!');
     }
 
     router.back();
+    // Ensure the destination page re-fetches (loan_balance, alerts etc.).
+    router.refresh();
   }
 
   return (
@@ -97,6 +132,27 @@ function PaymentForm() {
             <h1 className="text-2xl font-bold">Collect Payment</h1>
             <p className="text-blue-200 text-sm">{planLabel}</p>
           </div>
+        </div>
+
+        {/* Member identity — DB-sourced (prevents cross-center misclicks) */}
+        <div className="mb-4 bg-white/15 backdrop-blur-sm rounded-2xl border border-white/20 px-4 py-3 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+            <User className="h-5 w-5" />
+          </div>
+          {memberInfo ? (
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-sm truncate">{memberInfo.full_name}</p>
+              <p className="text-xs text-blue-200">
+                {memberInfo.member_number}
+                {memberInfo.center_name ? ' · ' + memberInfo.center_name : ''}
+              </p>
+            </div>
+          ) : (
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="h-3 w-32 bg-white/20 rounded animate-pulse" />
+              <div className="h-2.5 w-24 bg-white/10 rounded animate-pulse" />
+            </div>
+          )}
         </div>
 
         {/* Loan summary pills */}
@@ -163,14 +219,14 @@ function PaymentForm() {
               <button
                 type="button"
                 onClick={() => setAmount(weekly.toString())}
-                className="flex-1 text-xs font-medium text-primary bg-primary/10 py-2 rounded-xl hover:bg-primary/20 transition-colors"
+                className="flex-1 min-h-[44px] text-sm font-medium text-primary bg-primary/10 py-3 rounded-xl hover:bg-primary/20 transition-colors"
               >
                 Weekly ({formatCurrency(weekly)})
               </button>
               <button
                 type="button"
                 onClick={() => setAmount(balance.toString())}
-                className="flex-1 text-xs font-medium text-amber-700 bg-amber-50 py-2 rounded-xl hover:bg-amber-100 transition-colors"
+                className="flex-1 min-h-[44px] text-sm font-medium text-amber-700 bg-amber-50 py-3 rounded-xl hover:bg-amber-100 transition-colors"
               >
                 Full Balance ({formatCurrency(balance)})
               </button>
@@ -190,7 +246,7 @@ function PaymentForm() {
               <button
                 type="button"
                 onClick={() => setAmount((weekly + prevShortfall).toString())}
-                className="mt-2 text-xs font-semibold text-red-700 bg-red-100 hover:bg-red-200 px-3 py-1.5 rounded-lg transition-colors"
+                className="mt-2 min-h-[44px] text-sm font-semibold text-red-700 bg-red-100 hover:bg-red-200 px-4 py-2.5 rounded-lg transition-colors"
               >
                 Weekly + Clear Shortfall ({formatCurrency(weekly + prevShortfall)})
               </button>

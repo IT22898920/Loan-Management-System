@@ -3,10 +3,18 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { getTodayString } from '@/lib/utils';
+import { safeError } from '@/lib/safe-error';
+import { TODAY_DAY_OF_WEEK } from '@/types';
 import { z } from 'zod';
 
-// Real DIRIYALANKA loans have arbitrary principal + interest + weekly due.
-// member_id (uuid) is used (member_number is no longer globally unique).
+// Pending credits from a historical balance fix. Hardcoded by member_number
+// because there are only two known cases. After both are consumed, delete
+// this constant + the credit-application branch in createLoanAction.
+const PENDING_CREDITS_LKR: Record<string, number> = {
+  'MBR-017': 600, // Soma Wickramasinghe
+  'MBR-024': 800, // Sumana Karunarathne
+};
+
 const newLoanSchema = z.object({
   member_id: z.string().uuid(),
   principal: z.coerce.number().positive(),
@@ -30,45 +38,83 @@ export async function createLoanAction(formData: FormData) {
 
   if (!parsed.success) return { error: parsed.error.errors[0].message };
 
-  // Verify member exists
+  // Role check — only staff and admins can issue loans
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+  if (!profile || (profile.role !== 'staff' && profile.role !== 'admin')) {
+    return { error: 'Unauthorized' };
+  }
+
+  // Verify member exists and pull member_number + center for authorization check
   const { data: member, error: mErr } = await supabase
     .from('members')
-    .select('id')
+    .select('id, member_number, center_id')
     .eq('id', parsed.data.member_id)
     .single();
 
   if (mErr || !member) return { error: 'Member not found.' };
 
-  // Cycle number = existing loans for this member + 1
-  const { count } = await supabase
-    .from('loans')
-    .select('*', { count: 'exact', head: true })
-    .eq('member_id', member.id);
+  // Authorization: staff can only issue loans to members of centers assigned
+  // to them TODAY. Admins are exempt (RLS still applies but admin role bypasses
+  // the center-day check).
+  if (profile.role === 'staff') {
+    const todayDay = TODAY_DAY_OF_WEEK();
+    if (!todayDay) {
+      return { error: 'Loans can only be issued on working days (Monday–Thursday).' };
+    }
+    const { data: assignment } = await supabase
+      .from('staff_center_assignments')
+      .select('id')
+      .eq('staff_id', user.id)
+      .eq('center_id', member.center_id)
+      .eq('day_of_week', todayDay)
+      .maybeSingle();
+    if (!assignment) {
+      return { error: 'This member\'s center is not assigned to you today.' };
+    }
+  }
 
-  const cycleNo = (count ?? 0) + 1;
-  const isFirstLoan = cycleNo === 1;
-  const balance = parsed.data.principal + parsed.data.interest;
+  // Apply pending credits (historical balance fix). Net against principal so
+  // the smaller loan reflects the credit owed.
+  let principal = parsed.data.principal;
+  const credit = PENDING_CREDITS_LKR[member.member_number];
+  if (credit) {
+    principal = Math.max(0, principal - credit);
+    console.log('[loans.createLoanAction] credit applied', {
+      memberNumber: member.member_number,
+      creditLkr: credit,
+      adjustedPrincipal: principal,
+    });
+  }
 
-  const { error } = await supabase.from('loans').insert({
-    member_id: member.id,
-    loan_plan: null,
-    principal: parsed.data.principal,
-    interest: parsed.data.interest,
-    original_balance: balance,
-    product_type: parsed.data.product_type ?? null,
-    cycle_no: cycleNo,
-    source: 'app',
-    loan_balance: balance,
-    weekly_payment: parsed.data.weekly_payment,
-    issued_date: getTodayString(),
-    status: 'active',
-    is_first_loan: isFirstLoan,
-    created_by: user.id,
+  // cycle_no allocation happens INSIDE the SECURITY DEFINER RPC so it can see
+  // all loans (RLS hides completed loans from staff, which previously caused
+  // cycle_no to collide on the 2nd loan for a returning member).
+  const { data: loanId, error } = await supabase.rpc('record_loan', {
+    p_member_id: member.id,
+    p_principal: principal,
+    p_interest: parsed.data.interest,
+    p_weekly_payment: parsed.data.weekly_payment,
+    p_issued_date: getTodayString(),
+    p_product_type: parsed.data.product_type ?? null,
+    p_created_by: user.id,
   });
 
-  if (error) return { error: error.message };
+  if (error) {
+    console.error('[loans.createLoanAction] record_loan failed', {
+      userId: user.id,
+      memberId: member.id,
+      message: error.message,
+    });
+    return { error: safeError(error, 'Could not create loan. Please try again.') };
+  }
 
   revalidatePath('/staff/dashboard');
+  revalidatePath('/staff/members/' + member.id);
   revalidatePath('/admin/members');
-  return { success: true };
+  revalidatePath('/admin/dashboard');
+  return { success: true, loanId };
 }

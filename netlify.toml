@@ -1,0 +1,30 @@
+# =============================================================================
+# Netlify Deployment Configuration
+# =============================================================================
+# This file configures the deployment of the DIRIYALANKA Loan Management System
+# (Next.js 16 App Router + Supabase) on Netlify.
+#
+# - Uses the official @netlify/plugin-nextjs to support SSR, Server Actions,
+#   Route Handlers, and Middleware (src/proxy.ts).
+# - Mirrors the security headers defined in next.config.mjs so they apply
+#   uniformly across all responses served through Netlify's CDN.
+# =============================================================================
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(self), camera=(), microphone=(), payment=()"

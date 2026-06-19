@@ -36,7 +36,7 @@ export function parseExcelFile(file: File): Promise<ExcelRow[]> {
         const colIdx = {
           center_name:   findCol(headers, ['center name', 'centre name', 'center']),
           loan_type:     findCol(headers, ['loan type', 'loan plan', 'plan']),
-          member_number: findCol(headers, ['member number', 'member no', 'member_number', 'no']),
+          member_number: findCol(headers, ['member number', 'member no', 'member_number']),
           member_name:   findCol(headers, ['member name', 'name']),
           issued_date:   findCol(headers, ['l issued date', 'l.issued date', 'lissueddate', 'issued date', 'issue date', 'loan date', 'date']),
           loan_balance:  findCol(headers, ['l/b', 'lb', 'loan balance', 'balance']),
@@ -52,6 +52,7 @@ export function parseExcelFile(file: File): Promise<ExcelRow[]> {
         }
 
         const rows: ExcelRow[] = [];
+        const dateErrors: string[] = [];
 
         for (let i = 1; i < raw.length; i++) {
           const row = raw[i] as unknown[];
@@ -63,7 +64,17 @@ export function parseExcelFile(file: File): Promise<ExcelRow[]> {
           if (!loanType) continue;
 
           const rawDate = row[colIdx.issued_date];
-          const issuedDate = parseDate(rawDate);
+          let issuedDate: string;
+          try {
+            issuedDate = parseDate(rawDate);
+          } catch (e) {
+            // Surface the row-specific error and skip — never silently stamp
+            // today's date as issued_date.
+            dateErrors.push(
+              `Row ${i + 1} (${memberNum}): ${e instanceof Error ? e.message : 'invalid date'}`,
+            );
+            continue;
+          }
           const loanBalance = parseFloat(String(row[colIdx.loan_balance] ?? '0').replace(/,/g, '')) || 0;
 
           rows.push({
@@ -74,6 +85,14 @@ export function parseExcelFile(file: File): Promise<ExcelRow[]> {
             issued_date: issuedDate,
             loan_balance: loanBalance,
           });
+        }
+
+        if (dateErrors.length > 0) {
+          // Show up to 10 errors so the user can fix the source file
+          const sample = dateErrors.slice(0, 10).join('\n');
+          const more = dateErrors.length > 10 ? `\n…and ${dateErrors.length - 10} more.` : '';
+          reject(new Error(`Date parse errors:\n${sample}${more}`));
+          return;
         }
 
         resolve(rows);
@@ -88,11 +107,16 @@ export function parseExcelFile(file: File): Promise<ExcelRow[]> {
 }
 
 function findCol(headers: string[], candidates: string[]): number {
-  for (const candidate of candidates) {
-    const idx = headers.findIndex((h) => h.includes(candidate));
-    if (idx !== -1) return idx;
-  }
-  return -1;
+  // Whole-token match (split on non-alphanumeric so 'Center No' tokens to
+  // ['center','no'] and won't match the candidate 'member number'). Previously
+  // substring matching let 'Phone No' / 'Center No' steal the member_number slot.
+  return headers.findIndex((h) => {
+    const tokens = h.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    return candidates.some((c) => {
+      const cTokens = c.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+      return cTokens.every((t) => tokens.includes(t));
+    });
+  });
 }
 
 function parseLoanType(raw: unknown): 5000 | 10000 | 20000 | null {
@@ -107,10 +131,18 @@ function toYMD(y: number, m: number, d: number): string {
   return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
+function isValidDMY(d: number, m: number, y: number): boolean {
+  return (
+    Number.isInteger(d) && Number.isInteger(m) && Number.isInteger(y) &&
+    d >= 1 && d <= 31 &&
+    m >= 1 && m <= 12 &&
+    y >= 1900 && y <= 2999
+  );
+}
+
 function parseDate(raw: unknown): string {
-  // JS Date object (from XLSX cellDates:true)
-  // Use LOCAL date components — toISOString() converts to UTC and shifts the
-  // date backwards in UTC+5:30 (Sri Lanka), causing a -1 day error.
+  // JS Date object (from XLSX cellDates:true) — use LOCAL date components
+  // (toISOString() shifts date back in UTC+5:30 Sri Lanka).
   if (raw instanceof Date && !isNaN(raw.getTime())) {
     return toYMD(raw.getFullYear(), raw.getMonth() + 1, raw.getDate());
   }
@@ -118,37 +150,42 @@ function parseDate(raw: unknown): string {
   if (typeof raw === 'string' && raw.trim()) {
     const s = raw.trim();
 
-    // YYYY-MM-DD — already ISO, use directly
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    // YYYY-MM-DD — already ISO
+    const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (iso) {
+      const y = +iso[1], m = +iso[2], d = +iso[3];
+      if (isValidDMY(d, m, y)) return s;
+    }
 
     // DD/MM/YYYY or D/M/YYYY  (Sri Lankan standard)
     const dmy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (dmy) return toYMD(+dmy[3], +dmy[2], +dmy[1]);
+    if (dmy) {
+      const d = +dmy[1], m = +dmy[2], y = +dmy[3];
+      if (isValidDMY(d, m, y)) return toYMD(y, m, d);
+    }
 
     // DD-MM-YYYY or D-M-YYYY
     const dmy2 = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
-    if (dmy2) return toYMD(+dmy2[3], +dmy2[2], +dmy2[1]);
+    if (dmy2) {
+      const d = +dmy2[1], m = +dmy2[2], y = +dmy2[3];
+      if (isValidDMY(d, m, y)) return toYMD(y, m, d);
+    }
 
     // DD.MM.YYYY
     const dmy3 = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-    if (dmy3) return toYMD(+dmy3[3], +dmy3[2], +dmy3[1]);
-
-    // Native JS parse fallback (handles "Jan 15 2026", "2026/01/15", etc.)
-    // Use local components to avoid UTC shift
-    const d = new Date(s);
-    if (!isNaN(d.getTime())) {
-      return toYMD(d.getFullYear(), d.getMonth() + 1, d.getDate());
+    if (dmy3) {
+      const d = +dmy3[1], m = +dmy3[2], y = +dmy3[3];
+      if (isValidDMY(d, m, y)) return toYMD(y, m, d);
     }
   }
 
   // Excel serial date number — build YYYY-MM-DD directly from components
-  // (never go through new Date() + toISOString() to avoid UTC shift)
   if (typeof raw === 'number') {
     const d = XLSX.SSF.parse_date_code(raw);
-    if (d) return toYMD(d.y, d.m, d.d);
+    if (d && isValidDMY(d.d, d.m, d.y)) return toYMD(d.y, d.m, d.d);
   }
 
-  // Absolute fallback: today's date (local)
-  const now = new Date();
-  return toYMD(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  // No silent fallback to today — caller must skip the row and surface the
+  // bad cell, otherwise weekly schedules + loan eligibility get corrupted.
+  throw new Error(`Cannot parse date: ${JSON.stringify(raw)}`);
 }

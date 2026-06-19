@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { requireAdmin } from '@/lib/auth-guard';
+import { safeError } from '@/lib/safe-error';
 import { z } from 'zod';
 
 const memberSchema = z.object({
@@ -34,7 +35,7 @@ export async function createMemberAction(formData: FormData) {
       .from('member-photos')
       .upload(fileName, photoFile, { contentType: photoFile.type, upsert: true });
 
-    if (uploadError) return { error: `Photo upload failed: ${uploadError.message}` };
+    if (uploadError) return { error: safeError(uploadError, 'Photo upload failed.') };
     photo_url = fileName;
   }
 
@@ -44,7 +45,7 @@ export async function createMemberAction(formData: FormData) {
     created_by: auth.userId,
   });
 
-  if (error) return { error: error.message };
+  if (error) return { error: safeError(error, 'Could not add member.') };
 
   revalidatePath('/admin/members');
   return { success: true };
@@ -73,7 +74,7 @@ export async function updateMemberAction(id: string, formData: FormData) {
       .from('member-photos')
       .upload(fileName, photoFile, { contentType: photoFile.type, upsert: true });
 
-    if (uploadError) return { error: `Photo upload failed: ${uploadError.message}` };
+    if (uploadError) return { error: safeError(uploadError, 'Photo upload failed.') };
     photo_url = fileName;
   }
 
@@ -82,7 +83,7 @@ export async function updateMemberAction(id: string, formData: FormData) {
 
   const { error } = await supabase.from('members').update(updateData).eq('id', id);
 
-  if (error) return { error: error.message };
+  if (error) return { error: safeError(error, 'Could not update member.') };
 
   revalidatePath('/admin/members');
   revalidatePath(`/admin/members/${id}`);

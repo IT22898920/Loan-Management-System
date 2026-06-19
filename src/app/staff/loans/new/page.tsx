@@ -132,9 +132,9 @@ export default function NewLoanPage() {
             value={memberNumber}
             onChange={(e) => setMemberNumber(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && searchMember()}
-            className="rounded-xl"
+            className="rounded-xl h-11"
           />
-          <Button onClick={searchMember} disabled={searching} className="rounded-xl px-4 shrink-0">
+          <Button onClick={searchMember} disabled={searching} className="rounded-xl h-11 px-4 shrink-0" aria-label="Search member">
             {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
           </Button>
         </div>
@@ -208,11 +208,19 @@ export default function NewLoanPage() {
                 <p className="text-[10px] text-gray-400 uppercase font-medium mb-2">Current Active Loans</p>
                 <div className="space-y-2">
                   {activeLoans.map((l) => (
-                    <div key={l.id} className="flex items-center justify-between px-3 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-xs">
-                      <span className="font-bold">{formatCurrency(l.principal ?? 0)}</span>
-                      <span>L/B: <strong>{formatCurrency(l.loan_balance)}</strong></span>
-                      <span>Weekly: <strong>{formatCurrency(l.weekly_payment)}</strong></span>
-                      <span className="text-gray-400">Since {formatDate(l.issued_date)}</span>
+                    <div key={l.id} className="rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-xs px-3 py-2.5">
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                        <div className="whitespace-nowrap">
+                          <span className="text-blue-500">Principal:</span> <strong>{formatCurrency(l.principal ?? 0)}</strong>
+                        </div>
+                        <div className="whitespace-nowrap">
+                          <span className="text-blue-500">L/B:</span> <strong>{formatCurrency(l.loan_balance)}</strong>
+                        </div>
+                        <div className="whitespace-nowrap">
+                          <span className="text-blue-500">Weekly:</span> <strong>{formatCurrency(l.weekly_payment)}</strong>
+                        </div>
+                        <div className="whitespace-nowrap text-gray-500">Since {formatDate(l.issued_date)}</div>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -229,10 +237,10 @@ export default function NewLoanPage() {
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Loan Details</p>
 
             {/* Preset quick-fill */}
-            <div className="flex gap-2 mb-4">
+            <div className="flex gap-3 mb-4">
               {LOAN_PLANS.map((p) => (
                 <button key={p.plan} type="button" onClick={() => applyPreset(p.plan)}
-                  className="flex-1 rounded-xl border border-gray-200 bg-gray-50 hover:bg-blue-50 hover:border-blue-300 py-2 text-xs font-semibold text-gray-700 transition-colors">
+                  className="flex-1 min-h-[44px] rounded-xl border border-gray-200 bg-gray-50 hover:bg-blue-50 hover:border-blue-300 py-3 text-sm font-semibold text-gray-700 transition-colors">
                   {p.plan / 1000}K
                 </button>
               ))}

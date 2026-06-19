@@ -3,18 +3,68 @@
 import { redirect } from 'next/navigation';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { requireAdmin } from '@/lib/auth-guard';
+import { safeError } from '@/lib/safe-error';
 import { z } from 'zod';
+
+// Strong password policy: 12+ chars with mixed case, digit, and symbol.
+// Microfinance handles real money — weak passwords are a CBSL audit finding.
+const STRONG_PASSWORD = z
+  .string()
+  .min(12, 'Password must be at least 12 characters.')
+  .regex(/[a-z]/, 'Password must contain a lowercase letter.')
+  .regex(/[A-Z]/, 'Password must contain an uppercase letter.')
+  .regex(/\d/, 'Password must contain a digit.')
+  .regex(/[^A-Za-z0-9]/, 'Password must contain a symbol.');
 
 const staffSchema = z.object({
   email: z.string().email('Valid email required'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  password: STRONG_PASSWORD,
   full_name: z.string().min(1, 'Full name is required'),
 });
 
+// Login schema deliberately permissive on password (existence-only) so we
+// never leak the policy at the login screen. Errors are always generic.
 const loginSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(6),
+  password: z.string().min(1),
 });
+
+const otpSchema = z.object({
+  email: z.string().email(),
+  token: z.string().regex(/^\d{6}$/, 'OTP must be 6 digits.'),
+});
+
+// In-memory throttle (per-process). For a multi-instance deploy, swap to a
+// DB table or Redis. Vercel single-region default is fine for v1.
+const loginAttempts = new Map<string, { count: number; firstAt: number; blockUntil: number }>();
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_BLOCK_MS = 15 * 60 * 1000;
+
+function recordLoginAttempt(email: string, success: boolean) {
+  const now = Date.now();
+  const key = email.toLowerCase();
+  const e = loginAttempts.get(key);
+  if (success) {
+    loginAttempts.delete(key);
+    return { blocked: false };
+  }
+  if (!e || now - e.firstAt > LOGIN_WINDOW_MS) {
+    loginAttempts.set(key, { count: 1, firstAt: now, blockUntil: 0 });
+    return { blocked: false };
+  }
+  e.count++;
+  if (e.count >= LOGIN_MAX_ATTEMPTS) {
+    e.blockUntil = now + LOGIN_BLOCK_MS;
+  }
+  loginAttempts.set(key, e);
+  return { blocked: e.blockUntil > now };
+}
+
+function isBlocked(email: string): boolean {
+  const e = loginAttempts.get(email.toLowerCase());
+  return !!e && e.blockUntil > Date.now();
+}
 
 export async function loginAction(formData: FormData) {
   const parsed = loginSchema.safeParse({
@@ -23,7 +73,11 @@ export async function loginAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    return { error: 'Invalid email or password format.' };
+    return { error: 'Invalid email or password.' };
+  }
+
+  if (isBlocked(parsed.data.email)) {
+    return { error: 'Too many login attempts. Try again in 15 minutes.' };
   }
 
   const supabase = await createClient();
@@ -34,10 +88,15 @@ export async function loginAction(formData: FormData) {
   });
 
   if (error || !data.user) {
+    const r = recordLoginAttempt(parsed.data.email, false);
+    if (r.blocked) {
+      return { error: 'Too many login attempts. Try again in 15 minutes.' };
+    }
     return { error: 'Invalid email or password.' };
   }
 
-  // Get role for redirect
+  recordLoginAttempt(parsed.data.email, true);
+
   const { data: profile } = await supabase
     .from('profiles')
     .select('role')
@@ -50,27 +109,68 @@ export async function loginAction(formData: FormData) {
   };
 }
 
-export async function verifyOtpAction(formData: FormData) {
-  const email = formData.get('email') as string;
-  const token = formData.get('token') as string;
+// OTP throttle — same shape as login
+const otpAttempts = new Map<string, { count: number; firstAt: number; blockUntil: number }>();
+const OTP_WINDOW_MS = 15 * 60 * 1000;
+const OTP_MAX_ATTEMPTS = 5;
+const OTP_BLOCK_MS = 15 * 60 * 1000;
 
-  if (!email || !token) {
-    return { error: 'Invalid request.' };
+function recordOtpAttempt(email: string, success: boolean) {
+  const now = Date.now();
+  const key = email.toLowerCase();
+  const e = otpAttempts.get(key);
+  if (success) {
+    otpAttempts.delete(key);
+    return { blocked: false };
+  }
+  if (!e || now - e.firstAt > OTP_WINDOW_MS) {
+    otpAttempts.set(key, { count: 1, firstAt: now, blockUntil: 0 });
+    return { blocked: false };
+  }
+  e.count++;
+  if (e.count >= OTP_MAX_ATTEMPTS) {
+    e.blockUntil = now + OTP_BLOCK_MS;
+  }
+  otpAttempts.set(key, e);
+  return { blocked: e.blockUntil > now };
+}
+
+function isOtpBlocked(email: string): boolean {
+  const e = otpAttempts.get(email.toLowerCase());
+  return !!e && e.blockUntil > Date.now();
+}
+
+export async function verifyOtpAction(formData: FormData) {
+  const parsed = otpSchema.safeParse({
+    email: formData.get('email'),
+    token: formData.get('token'),
+  });
+  if (!parsed.success) {
+    return { error: 'Invalid OTP format.' };
+  }
+
+  if (isOtpBlocked(parsed.data.email)) {
+    return { error: 'Too many OTP attempts. Try again in 15 minutes.' };
   }
 
   const supabase = await createClient();
 
   const { data, error } = await supabase.auth.verifyOtp({
-    email,
-    token,
+    email: parsed.data.email,
+    token: parsed.data.token,
     type: 'email',
   });
 
   if (error || !data.user) {
+    const r = recordOtpAttempt(parsed.data.email, false);
+    if (r.blocked) {
+      return { error: 'Too many OTP attempts. Try again in 15 minutes.' };
+    }
     return { error: 'Invalid or expired OTP. Please try again.' };
   }
 
-  // Get role for redirect
+  recordOtpAttempt(parsed.data.email, true);
+
   const { data: profile } = await supabase
     .from('profiles')
     .select('role')
@@ -93,8 +193,9 @@ export async function changePasswordAction(formData: FormData) {
   const password = formData.get('password') as string;
   const confirm = formData.get('confirm') as string;
 
-  if (!password || password.length < 8) {
-    return { error: 'Password must be at least 8 characters.' };
+  const passwordCheck = STRONG_PASSWORD.safeParse(password);
+  if (!passwordCheck.success) {
+    return { error: passwordCheck.error.errors[0].message };
   }
   if (password !== confirm) {
     return { error: 'Passwords do not match.' };
@@ -103,13 +204,11 @@ export async function changePasswordAction(formData: FormData) {
   const supabase = await createClient();
   const { error } = await supabase.auth.updateUser({ password });
 
-  if (error) return { error: error.message };
+  if (error) return { error: safeError(error, 'Could not update password.') };
   return { success: true };
 }
 
 export async function createStaffAction(formData: FormData) {
-  // SECURITY: only an authenticated admin may mint accounts (this uses the
-  // service-role admin client which bypasses RLS).
   const auth = await requireAdmin();
   if (!auth.ok) return { error: auth.error };
 
@@ -122,14 +221,17 @@ export async function createStaffAction(formData: FormData) {
 
   const supabase = await createAdminClient();
 
+  // handle_new_user trigger defaults role to 'staff' when user_metadata.role
+  // is absent — so we don't need to set it here. Asymmetric metadata between
+  // create and update was the source of admin/staff drift in the audit.
   const { data, error } = await supabase.auth.admin.createUser({
     email: parsed.data.email,
     password: parsed.data.password,
     email_confirm: true,
-    user_metadata: { role: 'staff', full_name: parsed.data.full_name },
+    user_metadata: { full_name: parsed.data.full_name },
   });
 
-  if (error) return { error: error.message };
+  if (error) return { error: safeError(error, 'Could not create staff account.') };
   return { success: true, userId: data.user?.id };
 }
 
@@ -150,20 +252,26 @@ export async function updateStaffAction(staffId: string, formData: FormData) {
 
   const supabase = await createAdminClient();
 
-  // Update auth user email + metadata
+  const { data: target } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', staffId)
+    .single();
+  if (!target) return { error: 'Staff member not found.' };
+  if (target.role !== 'staff') return { error: 'Cannot modify non-staff account.' };
+
   const { error: authErr } = await supabase.auth.admin.updateUserById(staffId, {
     email: parsed.data.email,
     email_confirm: true,
-    user_metadata: { role: 'staff', full_name: parsed.data.full_name },
+    user_metadata: { full_name: parsed.data.full_name },
   });
-  if (authErr) return { error: authErr.message };
+  if (authErr) return { error: safeError(authErr, 'Could not update staff details.') };
 
-  // Update profile table
   const { error: profErr } = await supabase
     .from('profiles')
     .update({ full_name: parsed.data.full_name, email: parsed.data.email })
     .eq('id', staffId);
-  if (profErr) return { error: profErr.message };
+  if (profErr) return { error: safeError(profErr, 'Could not update profile.') };
 
   return { success: true };
 }
@@ -171,15 +279,26 @@ export async function updateStaffAction(staffId: string, formData: FormData) {
 export async function resetStaffPasswordAction(staffId: string, newPassword: string) {
   const auth = await requireAdmin();
   if (!auth.ok) return { error: auth.error };
-  if (!newPassword || newPassword.length < 8) {
-    return { error: 'Password must be at least 8 characters.' };
+
+  const passwordCheck = STRONG_PASSWORD.safeParse(newPassword);
+  if (!passwordCheck.success) {
+    return { error: passwordCheck.error.errors[0].message };
   }
 
   const supabase = await createAdminClient();
+
+  const { data: target } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', staffId)
+    .single();
+  if (!target) return { error: 'Staff member not found.' };
+  if (target.role !== 'staff') return { error: 'Cannot modify non-staff account.' };
+
   const { error } = await supabase.auth.admin.updateUserById(staffId, {
     password: newPassword,
   });
-  if (error) return { error: error.message };
+  if (error) return { error: safeError(error, 'Could not reset password.') };
   return { success: true };
 }
 
@@ -189,7 +308,6 @@ export async function deleteStaffAction(staffId: string) {
 
   const supabase = await createAdminClient();
 
-  // Safety: confirm target is staff (not admin)
   const { data: target } = await supabase
     .from('profiles')
     .select('role')
@@ -198,12 +316,10 @@ export async function deleteStaffAction(staffId: string) {
   if (!target) return { error: 'Staff member not found.' };
   if (target.role !== 'staff') return { error: 'Cannot delete non-staff account.' };
 
-  // Remove assignments first (FK safety)
   await supabase.from('staff_center_assignments').delete().eq('staff_id', staffId);
 
-  // Delete auth user (cascades to profile via FK)
   const { error } = await supabase.auth.admin.deleteUser(staffId);
-  if (error) return { error: error.message };
+  if (error) return { error: safeError(error, 'Could not delete staff account.') };
 
   return { success: true };
 }

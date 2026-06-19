@@ -49,13 +49,12 @@ All mutations go through server actions with Zod validation. Key actions:
 - `reports.ts` — Validates all center members have payment records before allowing daily report submission.
 - `loans.ts` — Creates loans, auto-detects first-loan vs returning member for balance calculation.
 
-### Date/Day Overrides (TEST MODE)
+### Date/Day Helpers
 
-**Remove before production:**
-- `src/types/index.ts` → `TODAY_DAY_OF_WEEK()` — hardcoded to return `'monday'`
-- `src/lib/utils.ts` → `getTodayString()` — hardcoded to return `'2026-04-13'`
+- `src/types/index.ts` → `TODAY_DAY_OF_WEEK()` — returns the live `Asia/Colombo` weekday (Mon–Thu), or `null` on Fri–Sun.
+- `src/lib/utils.ts` → `getTodayString()` — returns today's date in `Asia/Colombo` as `YYYY-MM-DD`, independent of host TZ.
 
-These overrides affect the entire system (which centers show, payment dates, report validation).
+Both functions must stay in sync with the DB's `now() at time zone 'Asia/Colombo'` used by RLS — otherwise dawn/dusk collections get stamped with the wrong day.
 
 ### Alert System
 
@@ -81,7 +80,7 @@ Defined in `supabase/migrations/002_rls_policies.sql`. Key constraints:
 
 ## Pending Credits
 
-- Soma Wickramasinghe (MBR-017): LKR 600 credit to apply on next loan
-- Sumana Karunarathne (MBR-024): LKR 800 credit to apply on next loan
+- Soma Wickramasinghe (MBR-017): LKR 600 credit
+- Sumana Karunarathne (MBR-024): LKR 800 credit
 
-These are overpayments from a historical balance fix. When creating their next loans, reduce `loan_balance` by the credit amount via SQL.
+These are overpayments from a historical balance fix. The reduction is now applied automatically inside `createLoanAction` in [src/app/actions/loans.ts](src/app/actions/loans.ts) the first time each member is issued a new loan via the app. After that loan is created the guard becomes a no-op for that member; once both have been consumed, remove the corresponding branch from `createLoanAction` and delete this section.

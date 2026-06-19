@@ -14,16 +14,16 @@ export default async function AdminDashboardPage() {
   const today = getTodayString();
 
   const [
-    { count: activeLoans },
-    { data: todayPayments },
-    { count: totalMembers },
-    { count: totalCenters },
-    { data: shortfallPayments },
-    { data: staffCollection },
-    { data: activeLoanStats },
-    { count: completedLoansToday },
-    { data: allTimeCollected },
-    { data: weeklyPayments },
+    activeLoansRes,
+    todayPaymentsRes,
+    totalMembersRes,
+    totalCentersRes,
+    shortfallPaymentsRes,
+    staffCollectionRes,
+    activeLoanStatsRes,
+    completedLoansTodayRes,
+    allTimeCollectedRes,
+    weeklyPaymentsRes,
   ] = await Promise.all([
     supabase.from('loans').select('*', { count: 'exact', head: true }).eq('status', 'active'),
     supabase.from('payments').select('amount_paid, is_not_paid').eq('payment_date', today),
@@ -47,6 +47,30 @@ export default async function AdminDashboardPage() {
       })())
       .lte('payment_date', today),
   ]);
+
+  // Surface query failures instead of silently rendering zeros.
+  const failures: string[] = [];
+  if (activeLoansRes.error) failures.push('active loans');
+  if (todayPaymentsRes.error) failures.push("today's payments");
+  if (totalMembersRes.error) failures.push('member count');
+  if (totalCentersRes.error) failures.push('center count');
+  if (shortfallPaymentsRes.error) failures.push('shortfall alerts');
+  if (staffCollectionRes.error) failures.push('staff collection');
+  if (activeLoanStatsRes.error) failures.push('active loan stats');
+  if (completedLoansTodayRes.error) failures.push('completed loans');
+  if (allTimeCollectedRes.error) failures.push('all-time collected');
+  if (weeklyPaymentsRes.error) failures.push('weekly chart');
+
+  const activeLoans = activeLoansRes.count;
+  const todayPayments = todayPaymentsRes.data;
+  const totalMembers = totalMembersRes.count;
+  const totalCenters = totalCentersRes.count;
+  const shortfallPayments = shortfallPaymentsRes.data;
+  const staffCollection = staffCollectionRes.data;
+  const activeLoanStats = activeLoanStatsRes.data;
+  const completedLoansToday = completedLoansTodayRes.count;
+  const allTimeCollected = allTimeCollectedRes.data;
+  const weeklyPayments = weeklyPaymentsRes.data;
 
   const todayTotal = (todayPayments ?? []).reduce((s, p) => s + (p.is_not_paid ? 0 : p.amount_paid), 0);
   const allTimeTotal = Number(allTimeCollected ?? 0);
@@ -139,6 +163,18 @@ export default async function AdminDashboardPage() {
       </div>
 
       <div className="px-4 md:px-8 py-6 space-y-5">
+
+        {/* Partial data warning */}
+        {failures.length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-4 flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="font-semibold text-red-800 text-sm">Some dashboard data could not be loaded</p>
+              <p className="text-xs text-red-700 mt-1">Showing partial information. Failed: {failures.join(', ')}.</p>
+            </div>
+            <Link href="/admin/dashboard" className="text-xs font-medium text-red-700 hover:underline shrink-0">Refresh</Link>
+          </div>
+        )}
 
         {/* Quick Actions */}
         <div>

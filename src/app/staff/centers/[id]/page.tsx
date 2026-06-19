@@ -319,7 +319,7 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
                           Next Week
                         </span>
                       ) : !paid ? (
-                        <Button size="sm" asChild className="shrink-0 rounded-xl h-9 px-4">
+                        <Button size="sm" asChild className="shrink-0 rounded-xl h-11 px-5">
                           <Link href={`/staff/payment/new?loanId=${loan.id}&memberId=${member?.id}&principal=${loan.principal ?? 0}&weekly=${loan.weekly_payment}&balance=${loan.loan_balance}&prevShortfall=${loan.prevAlert?.netOwed ?? 0}`}>
                             Collect
                           </Link>

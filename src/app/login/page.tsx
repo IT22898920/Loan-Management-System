@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { loginAction } from '@/app/actions/auth';
+import { LOGIN_START_KEY } from '@/lib/session-config';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -21,7 +22,12 @@ export default function LoginPage() {
     const result = await loginAction(formData);
     setLoading(false);
     if (result?.error) { toast.error(result.error); return; }
-    if (result?.success) router.push(result.redirectTo);
+    if (result?.success) {
+      try {
+        localStorage.setItem(LOGIN_START_KEY, Date.now().toString());
+      } catch {}
+      router.push(result.redirectTo);
+    }
   }
 
   return (

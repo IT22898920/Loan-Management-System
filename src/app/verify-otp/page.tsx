@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { verifyOtpAction, loginAction } from '@/app/actions/auth';
+import { LOGIN_START_KEY } from '@/lib/session-config';
 
 function OtpForm() {
   const router = useRouter();
@@ -59,6 +60,9 @@ function OtpForm() {
     }
 
     if (result?.success) {
+      try {
+        localStorage.setItem(LOGIN_START_KEY, Date.now().toString());
+      } catch {}
       toast.success('Verified! Redirecting...');
       router.push(result.redirectTo);
     }

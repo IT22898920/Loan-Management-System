@@ -16,6 +16,7 @@ export default function ImportPage() {
   const [rows, setRows] = useState<ExcelRow[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [imported, setImported] = useState(0);
+  const [progress, setProgress] = useState({ done: 0, total: 0, errors: 0 });
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -37,6 +38,7 @@ export default function ImportPage() {
 
   async function handleImport() {
     setStatus('importing');
+    setProgress({ done: 0, total: rows.length, errors: 0 });
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { toast.error('Not authenticated.'); setStatus('preview'); return; }
@@ -147,8 +149,10 @@ export default function ImportPage() {
         }
 
         successCount++;
+        setProgress((prev) => ({ ...prev, done: prev.done + 1 }));
       } catch (err) {
         importErrors.push((err as Error).message);
+        setProgress((prev) => ({ ...prev, done: prev.done + 1, errors: prev.errors + 1 }));
       }
     }
 
@@ -266,9 +270,25 @@ export default function ImportPage() {
         )}
 
         {status === 'importing' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 flex items-center justify-center gap-3">
-            <Loader2 className="h-7 w-7 animate-spin text-primary" />
-            <span className="text-gray-600 font-medium">Importing records into database...</span>
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+            <div className="flex items-center justify-center gap-3 mb-5">
+              <Loader2 className="h-7 w-7 animate-spin text-primary" />
+              <span className="text-gray-600 font-medium">Importing records into database…</span>
+            </div>
+            <div className="max-w-md mx-auto">
+              <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
+                <span>{progress.done} / {progress.total} records imported</span>
+                {progress.errors > 0 && (
+                  <span className="text-red-600 font-medium">{progress.errors} errors</span>
+                )}
+              </div>
+              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all duration-300"
+                  style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
           </div>
         )}
 

@@ -27,16 +27,22 @@ export async function captureLocation(): Promise<GpsLocation> {
 }
 
 async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
+  // Hard timeout — the geocode is best-effort and must NEVER hang the payment
+  // save (a field collector on weak signal would otherwise be stuck).
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 5000);
   try {
     const res = await fetch(
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
-      { headers: { 'Accept-Language': 'en' } }
+      { headers: { 'Accept-Language': 'en' }, signal: ctrl.signal }
     );
     if (!res.ok) return null;
     const data = await res.json();
     return data.display_name ?? null;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

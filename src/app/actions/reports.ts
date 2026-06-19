@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { getTodayString } from '@/lib/utils';
+import { safeError } from '@/lib/safe-error';
 import { TODAY_DAY_OF_WEEK } from '@/types';
 import { z } from 'zod';
 
@@ -27,13 +28,20 @@ export async function saveReportAction(formData: FormData) {
 
   // ── Validate: all members must have a payment record today ──────────────
   const todayDay = TODAY_DAY_OF_WEEK();
-  if (todayDay) {
-    // Week start (Monday)
-    const todayDate = new Date(today);
-    const daysFromMonday = todayDate.getDay() === 0 ? 6 : todayDate.getDay() - 1;
+  if (!todayDay) {
+    return { error: 'වැඩ කරන දින (සඳුදා–බ්‍රහස්පතින්දා) පමණක් වාර්තා යැවිය හැක.' };
+  }
+  {
+    // Week start (Monday) — parse YYYY-MM-DD as UTC so this stays correct on
+    // any deployment timezone (Vercel default is UTC; US-region datacenters
+    // would otherwise shift the date).
+    const [yr, mo, dy] = today.split('-').map(Number);
+    const todayDate = new Date(Date.UTC(yr, mo - 1, dy));
+    const dow = todayDate.getUTCDay(); // 0=Sun..6=Sat
+    const daysFromMonday = dow === 0 ? 6 : dow - 1;
     const weekStartDate = new Date(todayDate);
-    weekStartDate.setDate(todayDate.getDate() - daysFromMonday);
-    const weekStart = `${weekStartDate.getFullYear()}-${String(weekStartDate.getMonth() + 1).padStart(2, '0')}-${String(weekStartDate.getDate()).padStart(2, '0')}`;
+    weekStartDate.setUTCDate(todayDate.getUTCDate() - daysFromMonday);
+    const weekStart = `${weekStartDate.getUTCFullYear()}-${String(weekStartDate.getUTCMonth() + 1).padStart(2, '0')}-${String(weekStartDate.getUTCDate()).padStart(2, '0')}`;
 
     const { data: assignments } = await supabase
       .from('staff_center_assignments')
@@ -97,7 +105,13 @@ export async function saveReportAction(formData: FormData) {
       .eq('report_date', today)
       .select();
 
-    if (updateError) return { error: `Update failed: ${updateError.message}` };
+    if (updateError) {
+      console.error('[reports.saveReportAction] update failed', {
+        userId: user.id,
+        message: updateError.message,
+      });
+      return { error: safeError(updateError, 'වාර්තාව සුරැකීමට නොහැක.') };
+    }
     if (!updated || updated.length === 0) {
       // RLS blocked update — delete + re-insert
       await supabase.from('daily_reports').delete().eq('staff_id', user.id).eq('report_date', today);
@@ -108,7 +122,13 @@ export async function saveReportAction(formData: FormData) {
         loan_issued: parsed.data.loan_issued,
         submitted_at: new Date().toISOString(),
       });
-      if (insertError) return { error: `Insert failed: ${insertError.message}` };
+      if (insertError) {
+        console.error('[reports.saveReportAction] insert-after-delete failed', {
+          userId: user.id,
+          message: insertError.message,
+        });
+        return { error: safeError(insertError, 'වාර්තාව සුරැකීමට නොහැක.') };
+      }
     }
   } else {
     const { error: insertError } = await supabase.from('daily_reports').insert({
@@ -118,7 +138,13 @@ export async function saveReportAction(formData: FormData) {
       loan_issued: parsed.data.loan_issued,
       submitted_at: new Date().toISOString(),
     });
-    if (insertError) return { error: `Insert failed: ${insertError.message}` };
+    if (insertError) {
+      console.error('[reports.saveReportAction] insert failed', {
+        userId: user.id,
+        message: insertError.message,
+      });
+      return { error: safeError(insertError, 'වාර්තාව සුරැකීමට නොහැක.') };
+    }
   }
 
   revalidatePath('/staff/report');

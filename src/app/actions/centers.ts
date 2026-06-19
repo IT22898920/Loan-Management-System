@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { requireAdmin } from '@/lib/auth-guard';
+import { safeError } from '@/lib/safe-error';
 import { z } from 'zod';
 
 const centerSchema = z.object({
@@ -26,7 +27,7 @@ export async function createCenterAction(formData: FormData) {
 
   const { error } = await supabase.from('centers').insert(parsed.data);
 
-  if (error) return { error: error.message };
+  if (error) return { error: safeError(error, 'Could not create center.') };
 
   revalidatePath('/admin/centers');
   return { success: true };
@@ -48,7 +49,7 @@ export async function updateCenterAction(id: string, formData: FormData) {
 
   const { error } = await supabase.from('centers').update(parsed.data).eq('id', id);
 
-  if (error) return { error: error.message };
+  if (error) return { error: safeError(error, 'Could not update center.') };
 
   revalidatePath('/admin/centers');
   return { success: true };
@@ -59,7 +60,7 @@ export async function deleteCenterAction(id: string) {
   if (!auth.ok) return { error: auth.error };
   const supabase = await createClient();
   const { error } = await supabase.from('centers').delete().eq('id', id);
-  if (error) return { error: error.message };
+  if (error) return { error: safeError(error, 'Could not delete center.') };
   revalidatePath('/admin/centers');
   return { success: true };
 }
