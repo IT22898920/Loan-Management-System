@@ -2,8 +2,9 @@ import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { createClient } from '@/lib/supabase/server';
-import { ArrowLeft, AlertTriangle, CheckCircle2, MinusCircle, CreditCard, Clock } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, CheckCircle2, MinusCircle, CreditCard, Clock, Camera } from 'lucide-react';
 import { formatCurrency, formatDate, getTodayString } from '@/lib/utils';
+import MemberPhotoUpload from '@/components/MemberPhotoUpload';
 
 export default async function StaffMemberProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -96,6 +97,23 @@ export default async function StaffMemberProfilePage({ params }: { params: Promi
               <p className="font-bold">{completedCount}</p>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Member Photo */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-4">
+        <div className="px-5 py-4 border-b border-gray-50 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center">
+            <Camera className="h-5 w-5 text-purple-600" />
+          </div>
+          <h2 className="font-semibold text-gray-900">Member Photo</h2>
+        </div>
+        <div className="px-5 py-4">
+          <MemberPhotoUpload
+            memberId={member.id}
+            initialPhotoUrl={member.photo_url ?? null}
+            memberName={member.full_name}
+          />
         </div>
       </div>
 

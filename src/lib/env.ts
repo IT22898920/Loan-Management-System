@@ -12,6 +12,7 @@ const envSchema = z.object({
   // Cloudinary — used for profile photo CDN hosting. Both public values.
   NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: z.string().min(1).optional(),
   NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET: z.string().min(1).optional(),
+  NEXT_PUBLIC_CLOUDINARY_MEMBER_UPLOAD_PRESET: z.string().min(1).optional(),
 });
 
 const parsed = envSchema.safeParse({
@@ -20,6 +21,7 @@ const parsed = envSchema.safeParse({
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
   NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
   NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET: process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET,
+  NEXT_PUBLIC_CLOUDINARY_MEMBER_UPLOAD_PRESET: process.env.NEXT_PUBLIC_CLOUDINARY_MEMBER_UPLOAD_PRESET,
 });
 
 if (!parsed.success) {
