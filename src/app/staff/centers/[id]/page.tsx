@@ -405,7 +405,7 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
                     <p className="text-xs text-gray-400">#{m.member_number} · {m.principals.length} loan{m.principals.length > 1 ? 's' : ''} completed</p>
                   </div>
                   <span className="shrink-0 flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700">
-                    <Trophy className="h-3 w-3" /> Done
+                    <Trophy className="h-3 w-3" /> Completed
                   </span>
                 </div>
               ))}
