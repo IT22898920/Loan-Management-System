@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Download, FileText, TrendingUp, Banknote, ArrowUpRight } from 'lucide-react';
+import { Loader2, Download, FileText, TrendingUp, Banknote, ArrowUpRight, Lock, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,7 +23,7 @@ export default function StaffReportPage() {
   const [loading, setLoading] = useState(true);
   const [centers, setCenters] = useState<CenterReport[]>([]);
   const [staffName, setStaffName] = useState('');
-  const [cashIssued, setCashIssued] = useState('0');
+  const [existingCashIssued, setExistingCashIssued] = useState<number | null>(null);
   const [loanIssued, setLoanIssued] = useState('0');
   const [saving, setSaving] = useState(false);
 
@@ -57,9 +57,7 @@ export default function StaffReportPage() {
       })),
     );
 
-    if (result.data.existing_cash_issued !== null) {
-      setCashIssued(result.data.existing_cash_issued.toString());
-    }
+    setExistingCashIssued(result.data.existing_cash_issued);
     const totalLoanIssued = result.data.centers.reduce((s, c) => s + c.loan_issued, 0);
     if (totalLoanIssued > 0) setLoanIssued(totalLoanIssued.toString());
 
@@ -68,7 +66,8 @@ export default function StaffReportPage() {
 
   const totalExpected = centers.reduce((s, c) => s + c.expected_collection, 0);
   const totalCollected = centers.reduce((s, c) => s + c.collection_amount, 0);
-  const cashIssuedNum = parseFloat(cashIssued) || 0;
+  const cashIssuedNum = existingCashIssued ?? 0;
+  const hasCashIssued = existingCashIssued !== null && existingCashIssued > 0;
   const loanIssuedNum = parseFloat(loanIssued) || 0;
   const totalCashBalance = cashIssuedNum + totalCollected - loanIssuedNum;
   const collectionRate = totalExpected > 0 ? Math.round((totalCollected / totalExpected) * 100) : 0;
@@ -88,7 +87,6 @@ export default function StaffReportPage() {
     setSaving(true);
 
     const fd = new FormData();
-    fd.append('cash_issued', cashIssued);
     fd.append('loan_issued', loanIssued);
 
     const result = await saveReportAction(fd);
@@ -199,21 +197,68 @@ export default function StaffReportPage() {
           </div>
           <div>
             <h2 className="font-semibold text-gray-900">Cash Details</h2>
-            <p className="text-xs text-muted-foreground">Enter amounts manually</p>
+            <p className="text-xs text-muted-foreground">Cash issuance controlled by admin</p>
           </div>
         </div>
         <div className="p-5 space-y-4">
+          {/* Cash Issued — read-only, set by admin */}
           <div className="space-y-1.5">
             <Label className="text-xs font-medium text-gray-600">Cash Issued (Rs.)</Label>
-            <Input
-              type="number"
-              min="0"
-              step="0.01"
-              value={cashIssued}
-              onChange={(e) => setCashIssued(e.target.value)}
-              className="rounded-xl"
-            />
+
+            {hasCashIssued ? (
+              <div className="relative rounded-2xl p-[1.5px] bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-600 shadow-sm">
+                <div className="rounded-[14px] bg-gradient-to-br from-emerald-50 via-white to-teal-50 px-5 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Lock className="h-3 w-3 text-emerald-700" />
+                        <span className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider">
+                          Admin Issued
+                        </span>
+                      </div>
+                      <p className="text-2xl font-black text-emerald-900 tracking-tight">
+                        {formatCurrency(cashIssuedNum)}
+                      </p>
+                      <p className="text-[11px] text-emerald-700/80 mt-1">
+                        Set by admin · cannot be edited here
+                      </p>
+                    </div>
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md shrink-0">
+                      <Banknote className="h-5 w-5 text-white" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="relative rounded-2xl p-[1.5px] bg-gradient-to-br from-amber-300 via-amber-400 to-orange-500 shadow-sm">
+                <div className="rounded-[14px] bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 px-5 py-4">
+                  <div className="flex items-start gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-md shrink-0">
+                      <AlertTriangle className="h-5 w-5 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Lock className="h-3 w-3 text-amber-800" />
+                        <span className="text-[10px] font-semibold text-amber-800 uppercase tracking-wider">
+                          Pending
+                        </span>
+                      </div>
+                      <p className="text-sm font-semibold text-amber-900 leading-snug">
+                        Admin has not yet recorded cash issued for today
+                      </p>
+                      <p className="text-[12px] text-amber-800/90 mt-1 leading-snug" lang="si">
+                        අද දින cash issuance එක admin විසින් තවම සටහන් කර නැත
+                      </p>
+                      <p className="text-[11px] text-amber-700/80 mt-2">
+                        Set by admin · cannot be edited here
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
+
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <Label className="text-xs font-medium text-gray-600">Loan Issued (Rs.)</Label>

@@ -7,7 +7,7 @@ import Image from 'next/image';
 import {
   LayoutDashboard, Building2, Users, UserCog, Upload,
   CreditCard, FileText, LogOut, ChevronRight, Menu, X,
-  PanelLeftClose, PanelLeftOpen
+  PanelLeftClose, PanelLeftOpen, Banknote
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Profile } from '@/types';
@@ -18,6 +18,7 @@ const navItems = [
   { href: '/admin/centers', label: 'Centers', icon: Building2 },
   { href: '/admin/members', label: 'Members', icon: Users },
   { href: '/admin/staff', label: 'Staff', icon: UserCog },
+  { href: '/admin/cash-issuance', label: 'Cash Issuance', icon: Banknote },
   { href: '/admin/import', label: 'Excel Import', icon: Upload },
   { href: '/admin/payments', label: 'Payments', icon: CreditCard },
   { href: '/admin/reports', label: 'Reports', icon: FileText },

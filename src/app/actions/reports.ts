@@ -22,6 +22,8 @@ export interface StaffReportData {
   centers: StaffReportCenter[];
   existing_cash_issued: number | null;
   existing_loan_issued: number | null;
+  existing_cash_issued_locked: boolean;
+  admin_set_cash_issued_at: string | null;
 }
 
 /**
@@ -69,7 +71,7 @@ export async function getStaffReportDataAction(): Promise<
           .eq('day_of_week', todayDay)
       : Promise.resolve({ data: null as null }),
     admin.from('loans').select('principal, member:members!inner(center_id)').eq('created_by', user.id).eq('issued_date', today),
-    admin.from('daily_reports').select('cash_issued, loan_issued').eq('staff_id', user.id).eq('report_date', today).maybeSingle(),
+    admin.from('daily_reports').select('cash_issued, loan_issued, cash_issued_at').eq('staff_id', user.id).eq('report_date', today).maybeSingle(),
   ]);
 
   const staffName = profile?.full_name ?? '';
@@ -139,12 +141,18 @@ export async function getStaffReportDataAction(): Promise<
       centers: centerReports,
       existing_cash_issued: existingReport?.cash_issued ?? null,
       existing_loan_issued: existingReport?.loan_issued ?? null,
+      // cash_issued is now controlled exclusively by admin via the
+      // cash-issuance action; staff can only view it, never edit.
+      existing_cash_issued_locked: true,
+      admin_set_cash_issued_at:
+        (existingReport as { cash_issued_at?: string | null } | null)?.cash_issued_at ?? null,
     },
   };
 }
 
+// Staff no longer submits cash_issued — admin sets it via the cash-issuance
+// action. Staff only submits loan_issued (auto-calculated from today's loans).
 const reportSchema = z.object({
-  cash_issued: z.coerce.number().min(0),
   loan_issued: z.coerce.number().min(0),
 });
 
@@ -154,7 +162,6 @@ export async function saveReportAction(formData: FormData) {
   if (!user) return { error: 'Unauthorized' };
 
   const parsed = reportSchema.safeParse({
-    cash_issued: formData.get('cash_issued'),
     loan_issued: formData.get('loan_issued'),
   });
 
@@ -230,10 +237,12 @@ export async function saveReportAction(formData: FormData) {
     .single();
 
   if (existing) {
+    // IMPORTANT: do NOT include cash_issued in the update payload — that field
+    // is owned by the admin cash-issuance action, and overwriting it here
+    // (even with the same value) would clobber whatever admin set.
     const { data: updated, error: updateError } = await supabase
       .from('daily_reports')
       .update({
-        cash_issued: parsed.data.cash_issued,
         loan_issued: parsed.data.loan_issued,
         submitted_at: new Date().toISOString(),
       })
@@ -249,12 +258,15 @@ export async function saveReportAction(formData: FormData) {
       return { error: safeError(updateError, 'වාර්තාව සුරැකීමට නොහැක.') };
     }
     if (!updated || updated.length === 0) {
-      // RLS blocked update — delete + re-insert
+      // RLS blocked update — delete + re-insert.
+      // New row defaults cash_issued to 0; admin must re-enter it. This path
+      // is rare (RLS misconfiguration) and the alternative would be silently
+      // losing the staff's loan_issued submission.
       await supabase.from('daily_reports').delete().eq('staff_id', user.id).eq('report_date', today);
       const { error: insertError } = await supabase.from('daily_reports').insert({
         staff_id: user.id,
         report_date: today,
-        cash_issued: parsed.data.cash_issued,
+        cash_issued: 0,
         loan_issued: parsed.data.loan_issued,
         submitted_at: new Date().toISOString(),
       });
@@ -267,10 +279,12 @@ export async function saveReportAction(formData: FormData) {
       }
     }
   } else {
+    // First save of the day — admin has not set cash_issued yet, so default
+    // to 0. Admin will fill it in via the cash-issuance action.
     const { error: insertError } = await supabase.from('daily_reports').insert({
       staff_id: user.id,
       report_date: today,
-      cash_issued: parsed.data.cash_issued,
+      cash_issued: 0,
       loan_issued: parsed.data.loan_issued,
       submitted_at: new Date().toISOString(),
     });
