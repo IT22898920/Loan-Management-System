@@ -6,11 +6,9 @@ import { Loader2, Download, FileText, TrendingUp, Banknote, ArrowUpRight } from 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createClient } from '@/lib/supabase/client';
 import { generateDailyReportPDF, ReportCenter } from '@/lib/pdf-report';
-import { saveReportAction } from '@/app/actions/reports';
+import { saveReportAction, getStaffReportDataAction } from '@/app/actions/reports';
 import { formatCurrency, formatDate, getTodayString } from '@/lib/utils';
-import { TODAY_DAY_OF_WEEK } from '@/types';
 
 interface CenterReport {
   center_name: string;
@@ -30,108 +28,41 @@ export default function StaffReportPage() {
   const [saving, setSaving] = useState(false);
 
   const today = getTodayString();
-  const todayDay = TODAY_DAY_OF_WEEK();
-
-  // Calculate start of current week (Monday) — loans issued this week are excluded from expected
-  const todayDate = new Date(today);
-  const daysFromMonday = todayDate.getDay() === 0 ? 6 : todayDate.getDay() - 1;
-  const weekStartDate = new Date(todayDate);
-  weekStartDate.setDate(todayDate.getDate() - daysFromMonday);
-  const weekStartString = `${weekStartDate.getFullYear()}-${String(weekStartDate.getMonth() + 1).padStart(2, '0')}-${String(weekStartDate.getDate()).padStart(2, '0')}`;
 
   useEffect(() => {
     loadReportData();
   }, []);
 
   async function loadReportData() {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    // Server action — uses the admin client so RLS doesn't hide completed-today
+    // loans (whose payments are real cash in hand). See getStaffReportDataAction
+    // docstring for the full rationale.
+    const result = await getStaffReportDataAction();
 
-    const assignmentsQuery = todayDay
-      ? supabase
-          .from('staff_center_assignments')
-          .select('center:centers(id, name, center_number)')
-          .eq('staff_id', user.id)
-          .eq('day_of_week', todayDay)
-      : Promise.resolve({ data: null });
-
-    const [{ data: profile }, { data: assignments }, { data: todayLoans }, { data: existingReport }] = await Promise.all([
-      supabase.from('profiles').select('full_name').eq('id', user.id).single(),
-      assignmentsQuery,
-      supabase.from('loans').select('principal, member:members!inner(center_id)').eq('created_by', user.id).eq('issued_date', today),
-      supabase.from('daily_reports').select('cash_issued, loan_issued').eq('staff_id', user.id).eq('report_date', today).single(),
-    ]);
-
-    setStaffName(profile?.full_name ?? '');
-
-    // Pre-fill from existing submitted report if available
-    if (existingReport) {
-      setCashIssued(existingReport.cash_issued?.toString() ?? '0');
+    if ('error' in result) {
+      toast.error(result.error);
+      setLoading(false);
+      return;
     }
 
-    const totalLoanIssued = (todayLoans ?? []).reduce((s: number, l: { principal: number | null }) => s + (l.principal ?? 0), 0);
+    setStaffName(result.data.staff_name);
+    setCenters(
+      result.data.centers.map((c) => ({
+        center_name: c.center_name,
+        center_number: c.center_number,
+        expected_collection: c.expected_collection,
+        collection_amount: c.collection_amount,
+        cleared_amount: c.cleared_amount,
+        loan_issued: c.loan_issued,
+      })),
+    );
+
+    if (result.data.existing_cash_issued !== null) {
+      setCashIssued(result.data.existing_cash_issued.toString());
+    }
+    const totalLoanIssued = result.data.centers.reduce((s, c) => s + c.loan_issued, 0);
     if (totalLoanIssued > 0) setLoanIssued(totalLoanIssued.toString());
 
-    // Per-center loan issued map
-    const loanIssuedByCenter: Record<string, number> = {};
-    for (const l of (todayLoans ?? []) as unknown as { principal: number | null; member: { center_id: string } }[]) {
-      const cid = l.member.center_id;
-      loanIssuedByCenter[cid] = (loanIssuedByCenter[cid] ?? 0) + (l.principal ?? 0);
-    }
-
-    const assignedCenters = (assignments ?? [])
-      .map((a) => a.center as unknown as { id: string; name: string; center_number: number } | null)
-      .filter(Boolean) as { id: string; name: string; center_number: number }[];
-
-    const centerReports: CenterReport[] = [];
-
-    for (const center of assignedCenters) {
-      const { data: loans } = await supabase
-        .from('loans')
-        .select('id, weekly_payment, issued_date, status, members!inner(center_id)')
-        .eq('members.center_id', center.id);
-
-      // Expected: only ACTIVE loans issued BEFORE this week
-      const expectedCollection = (loans ?? [])
-        .filter((l: { status: string; issued_date: string }) => l.status === 'active' && l.issued_date < weekStartString)
-        .reduce((s: number, l: { weekly_payment: number }) => s + l.weekly_payment, 0);
-
-      // Collection: ALL loans (active + completed) — completed-today loans must not be missed
-      const loanIds = (loans ?? []).map((l: { id: string }) => l.id);
-      const loanStatusById = new Map(
-        (loans ?? []).map((l: { id: string; status: string }) => [l.id, l.status])
-      );
-
-      let collectionAmount = 0;
-      let clearedAmount = 0;
-      if (loanIds.length > 0) {
-        const { data: payments } = await supabase
-          .from('payments')
-          .select('loan_id, amount_paid')
-          .in('loan_id', loanIds)
-          .eq('staff_id', user.id)
-          .eq('payment_date', today);
-
-        for (const p of payments ?? []) {
-          collectionAmount += p.amount_paid;
-          if (loanStatusById.get(p.loan_id) !== 'active') {
-            clearedAmount += p.amount_paid;
-          }
-        }
-      }
-
-      centerReports.push({
-        center_name: center.name,
-        center_number: center.center_number,
-        expected_collection: expectedCollection,
-        collection_amount: collectionAmount,
-        cleared_amount: clearedAmount,
-        loan_issued: loanIssuedByCenter[center.id] ?? 0,
-      });
-    }
-
-    setCenters(centerReports);
     setLoading(false);
   }
 

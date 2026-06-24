@@ -1,11 +1,147 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { getTodayString } from '@/lib/utils';
 import { safeError } from '@/lib/safe-error';
 import { TODAY_DAY_OF_WEEK } from '@/types';
 import { z } from 'zod';
+
+export interface StaffReportCenter {
+  center_id: string;
+  center_name: string;
+  center_number: number;
+  expected_collection: number;
+  collection_amount: number;
+  cleared_amount: number;
+  loan_issued: number;
+}
+
+export interface StaffReportData {
+  staff_name: string;
+  centers: StaffReportCenter[];
+  existing_cash_issued: number | null;
+  existing_loan_issued: number | null;
+}
+
+/**
+ * Returns aggregated daily-report data for the calling staff.
+ *
+ * Why this lives in a server action and not the client component:
+ * the RLS SELECT policy on `loans` for `staff` is `status = 'active' AND …`.
+ * That means any browser-side query the staff makes against `loans` silently
+ * hides loans that were COMPLETED today (final payoffs). Those completed loans
+ * still own real payment rows that the staff member physically collected, so
+ * leaving them out of the report yields cash totals smaller than what's
+ * actually in the staff member's hand. The admin client used here bypasses RLS
+ * so the totals match the cash on hand.
+ */
+export async function getStaffReportDataAction(): Promise<
+  { error: string } | { data: StaffReportData }
+> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Unauthorized' };
+
+  const todayDay = TODAY_DAY_OF_WEEK();
+  const today = getTodayString();
+
+  // Week start (Monday, UTC) — loans issued this week are excluded from expected.
+  const [yr, mo, dy] = today.split('-').map(Number);
+  const todayDate = new Date(Date.UTC(yr, mo - 1, dy));
+  const dow = todayDate.getUTCDay();
+  const daysFromMonday = dow === 0 ? 6 : dow - 1;
+  const weekStartDate = new Date(todayDate);
+  weekStartDate.setUTCDate(todayDate.getUTCDate() - daysFromMonday);
+  const weekStartString = `${weekStartDate.getUTCFullYear()}-${String(weekStartDate.getUTCMonth() + 1).padStart(2, '0')}-${String(weekStartDate.getUTCDate()).padStart(2, '0')}`;
+
+  // We use the admin client for all reads below to bypass the staff-active-only
+  // RLS filter on the loans table (see docstring above).
+  const admin = await createAdminClient();
+
+  const [{ data: profile }, { data: assignments }, { data: todayLoans }, { data: existingReport }] = await Promise.all([
+    admin.from('profiles').select('full_name').eq('id', user.id).single(),
+    todayDay
+      ? admin
+          .from('staff_center_assignments')
+          .select('center:centers(id, name, center_number)')
+          .eq('staff_id', user.id)
+          .eq('day_of_week', todayDay)
+      : Promise.resolve({ data: null as null }),
+    admin.from('loans').select('principal, member:members!inner(center_id)').eq('created_by', user.id).eq('issued_date', today),
+    admin.from('daily_reports').select('cash_issued, loan_issued').eq('staff_id', user.id).eq('report_date', today).maybeSingle(),
+  ]);
+
+  const staffName = profile?.full_name ?? '';
+
+  const loanIssuedByCenter: Record<string, number> = {};
+  for (const l of (todayLoans ?? []) as unknown as { principal: number | null; member: { center_id: string } }[]) {
+    const cid = l.member.center_id;
+    loanIssuedByCenter[cid] = (loanIssuedByCenter[cid] ?? 0) + (l.principal ?? 0);
+  }
+
+  const assignedCenters = (assignments ?? [])
+    .map((a: { center: unknown }) => a.center as { id: string; name: string; center_number: number } | null)
+    .filter((c): c is { id: string; name: string; center_number: number } => Boolean(c));
+
+  const centerReports: StaffReportCenter[] = [];
+
+  for (const center of assignedCenters) {
+    // Admin client → sees ALL loans for this center (active + completed today)
+    const { data: loans } = await admin
+      .from('loans')
+      .select('id, weekly_payment, issued_date, status, members!inner(center_id)')
+      .eq('members.center_id', center.id);
+
+    // Expected: only ACTIVE loans issued BEFORE this week count toward weekly due
+    const expectedCollection = (loans ?? [])
+      .filter((l: { status: string; issued_date: string }) => l.status === 'active' && l.issued_date < weekStartString)
+      .reduce((s: number, l: { weekly_payment: number }) => s + l.weekly_payment, 0);
+
+    const loanIds = (loans ?? []).map((l: { id: string }) => l.id);
+    const loanStatusById = new Map(
+      (loans ?? []).map((l: { id: string; status: string }) => [l.id, l.status])
+    );
+
+    let collectionAmount = 0;
+    let clearedAmount = 0;
+    if (loanIds.length > 0) {
+      const { data: payments } = await admin
+        .from('payments')
+        .select('loan_id, amount_paid, is_not_paid')
+        .in('loan_id', loanIds)
+        .eq('staff_id', user.id)
+        .eq('payment_date', today);
+
+      for (const p of payments ?? []) {
+        if (p.is_not_paid) continue;
+        collectionAmount += Number(p.amount_paid);
+        if (loanStatusById.get(p.loan_id) !== 'active') {
+          clearedAmount += Number(p.amount_paid);
+        }
+      }
+    }
+
+    centerReports.push({
+      center_id: center.id,
+      center_name: center.name,
+      center_number: center.center_number,
+      expected_collection: expectedCollection,
+      collection_amount: collectionAmount,
+      cleared_amount: clearedAmount,
+      loan_issued: loanIssuedByCenter[center.id] ?? 0,
+    });
+  }
+
+  return {
+    data: {
+      staff_name: staffName,
+      centers: centerReports,
+      existing_cash_issued: existingReport?.cash_issued ?? null,
+      existing_loan_issued: existingReport?.loan_issued ?? null,
+    },
+  };
+}
 
 const reportSchema = z.object({
   cash_issued: z.coerce.number().min(0),
