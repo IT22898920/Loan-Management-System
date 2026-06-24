@@ -17,6 +17,7 @@ interface CenterReport {
   center_number: number;
   expected_collection: number;
   collection_amount: number;
+  cleared_amount: number;
   loan_issued: number;
 }
 
@@ -98,17 +99,26 @@ export default function StaffReportPage() {
 
       // Collection: ALL loans (active + completed) — completed-today loans must not be missed
       const loanIds = (loans ?? []).map((l: { id: string }) => l.id);
+      const loanStatusById = new Map(
+        (loans ?? []).map((l: { id: string; status: string }) => [l.id, l.status])
+      );
 
       let collectionAmount = 0;
+      let clearedAmount = 0;
       if (loanIds.length > 0) {
         const { data: payments } = await supabase
           .from('payments')
-          .select('amount_paid')
+          .select('loan_id, amount_paid')
           .in('loan_id', loanIds)
           .eq('staff_id', user.id)
           .eq('payment_date', today);
 
-        collectionAmount = (payments ?? []).reduce((s, p) => s + p.amount_paid, 0);
+        for (const p of payments ?? []) {
+          collectionAmount += p.amount_paid;
+          if (loanStatusById.get(p.loan_id) !== 'active') {
+            clearedAmount += p.amount_paid;
+          }
+        }
       }
 
       centerReports.push({
@@ -116,6 +126,7 @@ export default function StaffReportPage() {
         center_number: center.center_number,
         expected_collection: expectedCollection,
         collection_amount: collectionAmount,
+        cleared_amount: clearedAmount,
         loan_issued: loanIssuedByCenter[center.id] ?? 0,
       });
     }
@@ -223,7 +234,14 @@ export default function StaffReportPage() {
                   <td className="px-4 py-3.5 font-medium text-gray-800">{c.center_name}</td>
                   <td className="px-2 py-3.5 text-center text-muted-foreground">{c.center_number}</td>
                   <td className="px-3 py-3.5 text-right text-muted-foreground">{formatCurrency(c.expected_collection)}</td>
-                  <td className="px-3 py-3.5 text-right font-semibold text-gray-900">{formatCurrency(c.collection_amount)}</td>
+                  <td className="px-3 py-3.5 text-right font-semibold text-gray-900">
+                    {formatCurrency(c.collection_amount)}
+                    {c.cleared_amount > 0 && (
+                      <span className="block text-[10px] font-medium text-emerald-600 mt-0.5">
+                        incl. {formatCurrency(c.cleared_amount)} cleared
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3.5 text-right font-semibold text-blue-700">
                     {c.loan_issued > 0 ? formatCurrency(c.loan_issued) : '—'}
                   </td>

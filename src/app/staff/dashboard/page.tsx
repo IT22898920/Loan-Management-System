@@ -31,10 +31,27 @@ export default async function StaffDashboardPage() {
     .eq('staff_id', user.id)
     .eq('payment_date', today);
 
-  const paymentByLoan = new Map((todayPayments ?? []).map((p) => [p.loan_id, p]));
-
-  // Per-center stats: fetch active loans for today's centers
+  // Identify which loans today's payments belong to (active + completed-today),
+  // bucket each payment by its center. Use adminClient because RLS hides completed loans.
   const centerIds = centers.map((c) => c.id);
+  const todayLoanIds = [...new Set((todayPayments ?? []).map((p) => p.loan_id))];
+  const loanCenterMap = new Map<string, string>(); // loan_id -> center_id
+  const completedTodayLoanIds = new Set<string>(); // loans that completed today
+
+  if (todayLoanIds.length > 0) {
+    const { createAdminClient } = await import('@/lib/supabase/server');
+    const adminClient = await createAdminClient();
+    const { data: paidLoans } = await adminClient
+      .from('loans')
+      .select('id, status, weekly_payment, member:members!inner(center_id)')
+      .in('id', todayLoanIds);
+    for (const l of (paidLoans ?? []) as unknown as { id: string; status: string; weekly_payment: number; member: { center_id: string } }[]) {
+      loanCenterMap.set(l.id, l.member.center_id);
+      if (l.status !== 'active') completedTodayLoanIds.add(l.id);
+    }
+  }
+
+  // Active loans per assigned center (drives EXPECTED weekly intake)
   const { data: centerLoansWithPayment } = centerIds.length > 0
     ? await supabase
         .from('loans')
@@ -43,30 +60,40 @@ export default async function StaffDashboardPage() {
         .in('members.center_id', centerIds)
     : { data: null };
 
-  const loansByCenterId: Record<string, string[]> = {};
   const expectedByCenterId: Record<string, number> = {};
   for (const loan of (centerLoansWithPayment ?? []) as unknown as { id: string; weekly_payment: number; member: { center_id: string } }[]) {
     const cid = loan.member.center_id;
-    if (!loansByCenterId[cid]) loansByCenterId[cid] = [];
-    loansByCenterId[cid].push(loan.id);
+    loanCenterMap.set(loan.id, cid); // ensure map covers active loans too
     expectedByCenterId[cid] = (expectedByCenterId[cid] ?? 0) + loan.weekly_payment;
   }
 
   const centerStats = centers.map((center) => {
-    const loanIds = loansByCenterId[center.id] ?? [];
-    const payments = loanIds.map((id) => paymentByLoan.get(id)).filter(Boolean) as { amount_paid: number; is_not_paid: boolean }[];
-    const collected = payments.reduce((s, p) => s + (p.is_not_paid ? 0 : p.amount_paid), 0);
+    // Every payment posted today whose loan belongs to this center (any status).
+    const centerPayments = (todayPayments ?? []).filter((p) => loanCenterMap.get(p.loan_id) === center.id);
+    const regularPayments = centerPayments.filter((p) => !completedTodayLoanIds.has(p.loan_id));
+    const clearedPayments = centerPayments.filter((p) => completedTodayLoanIds.has(p.loan_id));
+
+    const regular = regularPayments.reduce((s, p) => s + (p.is_not_paid ? 0 : p.amount_paid), 0);
+    const cleared = clearedPayments.reduce((s, p) => s + (p.is_not_paid ? 0 : p.amount_paid), 0);
+    const collected = regular + cleared;
+
     const expected = expectedByCenterId[center.id] ?? 0;
-    const done = payments.filter((p) => !p.is_not_paid).length;
-    const np = payments.filter((p) => p.is_not_paid).length;
-    return { ...center, collected, expected, done, np };
+    const done = centerPayments.filter((p) => !p.is_not_paid).length;
+    const np = centerPayments.filter((p) => p.is_not_paid).length;
+    const clearedCount = clearedPayments.filter((p) => !p.is_not_paid).length;
+    return { ...center, collected, regular, cleared, clearedCount, expected, done, np };
   });
 
   const todayExpected = centerStats.reduce((s, c) => s + c.expected, 0);
+  const regularTodayTotal = centerStats.reduce((s, c) => s + c.regular, 0);
+  const clearedTodayTotal = centerStats.reduce((s, c) => s + c.cleared, 0);
 
   const todayTotal = (todayPayments ?? []).reduce((s, p) => s + (p.is_not_paid ? 0 : p.amount_paid), 0);
   const paidCount = (todayPayments ?? []).filter(p => !p.is_not_paid).length;
   const npCount = (todayPayments ?? []).filter(p => p.is_not_paid).length;
+  const progressPct = todayExpected > 0
+    ? Math.min(100, Math.round((regularTodayTotal / todayExpected) * 100))
+    : 0;
 
   const dayLabel = todayDay
     ? DAYS_OF_WEEK.find((d) => d.value === todayDay)?.label ?? todayDay
@@ -98,10 +125,15 @@ export default async function StaffDashboardPage() {
             <div className="h-1.5 bg-white/20 rounded-full overflow-hidden">
               <div
                 className="h-full bg-green-400 rounded-full transition-all"
-                style={{ width: `${Math.min(100, Math.round((todayTotal / todayExpected) * 100))}%` }}
+                style={{ width: `${progressPct}%` }}
               />
             </div>
-            <p className="text-[10px] text-blue-200 mt-1">{Math.min(100, Math.round((todayTotal / todayExpected) * 100))}% of expected</p>
+            <p className="text-[10px] text-blue-200 mt-1">
+              {progressPct}% of expected
+              {clearedTodayTotal > 0 && (
+                <span className="ml-2 text-emerald-200 font-semibold">+ {formatCurrency(clearedTodayTotal)} cleared</span>
+              )}
+            </p>
           </div>
         )}
 
@@ -173,6 +205,7 @@ export default async function StaffDashboardPage() {
                       <p className="text-[10px] text-gray-400">
                         of {formatCurrency(center.expected)}
                         {center.done > 0 ? ` · ${center.done}${center.np > 0 ? `/${center.np}` : ''} done` : ''}
+                        {center.cleared > 0 ? ` · cleared ${formatCurrency(center.cleared)}` : ''}
                       </p>
                     </div>
                     <ChevronRight className="h-4 w-4 text-gray-400" />

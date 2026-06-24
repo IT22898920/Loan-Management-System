@@ -9,6 +9,7 @@ export interface ReportCenter {
   center_number: number;
   expected_collection: number;
   collection_amount: number;
+  cleared_amount?: number;
   loan_issued: number;
 }
 
@@ -102,7 +103,9 @@ export function generateDailyReportPDF(data: DailyReportData): void {
     c.center_name,
     c.center_number.toString(),
     formatCurrency(c.expected_collection),
-    formatCurrency(c.collection_amount),
+    c.cleared_amount && c.cleared_amount > 0
+      ? `${formatCurrency(c.collection_amount)}\n(incl. ${formatCurrency(c.cleared_amount)} cleared)`
+      : formatCurrency(c.collection_amount),
     c.loan_issued > 0 ? formatCurrency(c.loan_issued) : '—',
   ]);
   tableRows.push(['TOTAL', '', formatCurrency(totalExpected), formatCurrency(totalCollected), formatCurrency(totalLoan)]);

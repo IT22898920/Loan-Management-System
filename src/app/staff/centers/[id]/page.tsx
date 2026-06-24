@@ -170,17 +170,38 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
   }
   memberLoans.sort((a, b) => (a.member?.member_number ?? '').localeCompare(b.member?.member_number ?? ''));
 
-  // Only count payments for loans belonging to THIS center
-  const centerLoanIds = new Set((loans ?? []).map((l) => l.id));
+  // Cash-in-hand at this center today = payments against ANY loan that lives in this center,
+  // whether the loan is still 'active' or was completed today (final payoff).
+  const completedTodayLoansTyped = completedTodayLoans as unknown as LoanWithMember[];
+  const activeLoanIdSet = new Set((loans ?? []).map((l) => l.id));
+  const completedTodayLoanIdSet = new Set(completedTodayLoansTyped.map((l) => l.id));
+  const centerLoanIds = new Set<string>([...activeLoanIdSet, ...completedTodayLoanIdSet]);
   const centerPayments = (todayPayments ?? []).filter((p) => centerLoanIds.has(p.loan_id));
 
+  const regularPayments = centerPayments.filter((p) => activeLoanIdSet.has(p.loan_id));
+  const clearedPayments = centerPayments.filter((p) => completedTodayLoanIdSet.has(p.loan_id));
+
   const totalMembers = memberLoans.length;
-  const collectedCount = centerPayments.filter(p => !p.is_not_paid).length;
-  const npCount = centerPayments.filter(p => p.is_not_paid).length;
-  const totalCollected = centerPayments.reduce((s, p) => s + (p.is_not_paid ? 0 : p.amount_paid), 0);
+  const collectedCount = centerPayments.filter((p) => !p.is_not_paid).length;
+  const npCount = centerPayments.filter((p) => p.is_not_paid).length;
+
+  const regularCollected = regularPayments.reduce((s, p) => s + (p.is_not_paid ? 0 : p.amount_paid), 0);
+  const clearedAmount = clearedPayments.reduce((s, p) => s + (p.is_not_paid ? 0 : p.amount_paid), 0);
+  const clearedCount = clearedPayments.filter((p) => !p.is_not_paid).length;
+  const totalCollected = regularCollected + clearedAmount; // cash-in-hand for this center
+
+  // Expected stays as ACTIVE loans issued before this week (unchanged semantics)
   const totalExpected = (loans ?? [])
     .filter((l) => (l as unknown as { issued_date: string }).issued_date < weekStartString)
     .reduce((s, l) => s + (l as unknown as { weekly_payment: number }).weekly_payment, 0);
+
+  const progressPct = totalExpected > 0
+    ? Math.min(100, Math.round((regularCollected / totalExpected) * 100))
+    : 0;
+  const overflowPct = totalExpected > 0
+    ? Math.max(0, Math.min(100 - progressPct, Math.round((clearedAmount / totalExpected) * 100)))
+    : 0;
+  const weeklyBalance = Math.max(0, totalExpected - regularCollected);
 
   return (
     <div className="pb-28">
@@ -199,20 +220,32 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
             <div>
               <p className="text-[10px] text-blue-200 font-medium uppercase tracking-wide">Collected</p>
               <p className="font-black text-2xl mt-0.5">{formatCurrency(totalCollected)}</p>
+              {clearedAmount > 0 && (
+                <p className="text-[10px] text-blue-200 mt-0.5">
+                  Regular {formatCurrency(regularCollected)}
+                  {' · '}
+                  <span className="text-emerald-200 font-semibold">
+                    Cleared {formatCurrency(clearedAmount)} ({clearedCount} loan{clearedCount !== 1 ? 's' : ''})
+                  </span>
+                </p>
+              )}
             </div>
             <div className="text-right">
               <p className="text-[10px] text-blue-200 font-medium uppercase tracking-wide">Expected</p>
               <p className="font-bold text-lg mt-0.5 text-blue-100">{formatCurrency(totalExpected)}</p>
             </div>
           </div>
-          <div className="h-2 bg-white/20 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-green-400 rounded-full transition-all"
-              style={{ width: `${totalExpected > 0 ? Math.min(100, Math.round((totalCollected / totalExpected) * 100)) : 0}%` }}
-            />
+          <div className="h-2 bg-white/20 rounded-full overflow-hidden flex">
+            <div className="h-full bg-green-400 transition-all" style={{ width: `${progressPct}%` }} />
+            {overflowPct > 0 && (
+              <div className="h-full bg-emerald-300/80 border-l border-white/40 transition-all" style={{ width: `${overflowPct}%` }} />
+            )}
           </div>
           <p className="text-[10px] text-blue-200 mt-1.5">
-            {totalExpected > 0 ? Math.min(100, Math.round((totalCollected / totalExpected) * 100)) : 0}% collected
+            {progressPct}% of expected
+            {clearedAmount > 0 && (
+              <span className="ml-2 text-emerald-200 font-semibold">+ {formatCurrency(clearedAmount)} cleared</span>
+            )}
           </p>
         </div>
 
@@ -227,7 +260,7 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
           </div>
           <div className="bg-white/15 rounded-xl px-4 py-2.5 border border-white/20 min-w-[80px]">
             <p className="text-[10px] text-blue-200 font-medium uppercase tracking-wide">Balance</p>
-            <p className="font-bold text-lg mt-0.5">{formatCurrency(totalExpected - totalCollected)}</p>
+            <p className="font-bold text-lg mt-0.5">{formatCurrency(weeklyBalance)}</p>
           </div>
         </div>
       </div>
