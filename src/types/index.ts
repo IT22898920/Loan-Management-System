@@ -103,6 +103,23 @@ export interface LoanPlanConfig {
   weekly_payment: number;
 }
 
+export type LoanPlanCategory = 'small' | 'medium' | 'large';
+export type LoanMemberType = 'new' | 'returning' | 'both';
+
+export interface LoanPlanRow {
+  id: string;
+  principal: number;
+  interest: number;
+  total_balance: number;
+  weekly_payment: number;
+  duration_weeks: number;
+  member_type: LoanMemberType;
+  category: LoanPlanCategory;
+  is_active: boolean;
+  display_order: number;
+  notes: string | null;
+}
+
 export const LOAN_PLANS: LoanPlanConfig[] = [
   { plan: 5000, returning_balance: 6000, new_member_balance: 6000, weekly_payment: 600 },
   { plan: 10000, returning_balance: 12500, new_member_balance: 13000, weekly_payment: 1000 },

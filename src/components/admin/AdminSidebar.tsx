@@ -19,6 +19,7 @@ const navItems = [
   { href: '/admin/members', label: 'Members', icon: Users },
   { href: '/admin/staff', label: 'Staff', icon: UserCog },
   { href: '/admin/cash-issuance', label: 'Cash Issuance', icon: Banknote },
+  { href: '/admin/loan-plans', label: 'Loan Plans', icon: Banknote },
   { href: '/admin/import', label: 'Excel Import', icon: Upload },
   { href: '/admin/payments', label: 'Payments', icon: CreditCard },
   { href: '/admin/reports', label: 'Reports', icon: FileText },

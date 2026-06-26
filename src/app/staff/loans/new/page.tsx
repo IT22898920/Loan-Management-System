@@ -1,17 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { toast } from 'sonner';
-import { Loader2, ArrowLeft, Search, PlusCircle, CheckCircle2, CreditCard, Building2, Calendar, BadgeCheck, History } from 'lucide-react';
+import { Loader2, ArrowLeft, Search, PlusCircle, CheckCircle2, CreditCard, Building2, Calendar, BadgeCheck, History, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { createClient } from '@/lib/supabase/client';
 import { createLoanAction } from '@/app/actions/loans';
+import { getActiveLoanPlansAction, type LoanPlan as LoanPlanRow } from '@/app/actions/loan-plans';
 import { formatCurrency, formatDate } from '@/lib/utils';
-import { LOAN_PLANS } from '@/types';
 
 interface FoundMember {
   id: string;
@@ -33,6 +33,27 @@ export default function NewLoanPage() {
   const [interest, setInterest] = useState('');
   const [weekly, setWeekly] = useState('');
   const [saving, setSaving] = useState(false);
+  const [plans, setPlans] = useState<LoanPlanRow[]>([]);
+  const [plansLoading, setPlansLoading] = useState(true);
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setPlansLoading(true);
+      const result = await getActiveLoanPlansAction();
+      if (cancelled) return;
+      if (result.success) {
+        setPlans(result.data);
+      } else {
+        toast.error(result.error);
+      }
+      setPlansLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function searchMember() {
     if (!memberNumber.trim()) return;
@@ -40,6 +61,7 @@ export default function NewLoanPage() {
     setMember(null);
     setPhotoUrl(null);
     setPrincipal(''); setInterest(''); setWeekly('');
+    setSelectedPlanId(null);
 
     const supabase = createClient();
     const { data } = await supabase
@@ -75,15 +97,48 @@ export default function NewLoanPage() {
   const weeklyNum = parseFloat(weekly) || 0;
   const totalBalance = principalNum + interestNum;
 
-  // Quick-fill from a standard plan preset (uses first/returning interest rates)
-  function applyPreset(planValue: number) {
-    const cfg = LOAN_PLANS.find((p) => p.plan === planValue);
-    if (!cfg) return;
-    const bal = isFirstLoan ? cfg.new_member_balance : cfg.returning_balance;
-    setPrincipal(String(cfg.plan));
-    setInterest(String(bal - cfg.plan));
-    setWeekly(String(cfg.weekly_payment));
+  // Quick-fill from a DB-driven loan plan row
+  function applyPlan(row: LoanPlanRow) {
+    setPrincipal(String(row.principal));
+    setInterest(String(row.interest));
+    setWeekly(String(row.weekly_payment));
+    setSelectedPlanId(row.id);
   }
+
+  // Filter plans by member type (new vs returning) — 'both' always shows.
+  const visiblePlans = useMemo(() => {
+    if (!member) return [] as LoanPlanRow[];
+    return plans.filter((p) => {
+      if (p.member_type === 'both') return true;
+      if (p.member_type === 'new') return isFirstLoan;
+      if (p.member_type === 'returning') return !isFirstLoan;
+      return false;
+    });
+  }, [plans, member, isFirstLoan]);
+
+  const groupedPlans = useMemo(() => {
+    const groups: Record<'small' | 'medium' | 'large', LoanPlanRow[]> = {
+      small: [],
+      medium: [],
+      large: [],
+    };
+    for (const p of visiblePlans) {
+      groups[p.category].push(p);
+    }
+    return groups;
+  }, [visiblePlans]);
+
+  const categoryLabels: Record<'small' | 'medium' | 'large', string> = {
+    small: 'Small',
+    medium: 'Medium',
+    large: 'Large',
+  };
+
+  const categoryStyles: Record<'small' | 'medium' | 'large', string> = {
+    small: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    medium: 'bg-blue-50 text-blue-700 border-blue-200',
+    large: 'bg-violet-50 text-violet-700 border-violet-200',
+  };
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -236,15 +291,67 @@ export default function NewLoanPage() {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Loan Details</p>
 
-            {/* Preset quick-fill */}
-            <div className="flex gap-3 mb-4">
-              {LOAN_PLANS.map((p) => (
-                <button key={p.plan} type="button" onClick={() => applyPreset(p.plan)}
-                  className="flex-1 min-h-[44px] rounded-xl border border-gray-200 bg-gray-50 hover:bg-blue-50 hover:border-blue-300 py-3 text-sm font-semibold text-gray-700 transition-colors">
-                  {p.plan / 1000}K
-                </button>
-              ))}
+            {/* Plan quick-fill from DB */}
+            <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5 mb-3 flex items-start gap-2">
+              <Info className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+              <p className="text-xs text-blue-800 leading-relaxed">
+                Quick-fill from common plans. You can also enter custom amounts below.
+              </p>
             </div>
+
+            {plansLoading ? (
+              <div className="flex items-center justify-center py-6 text-gray-400 text-sm gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading plans...
+              </div>
+            ) : visiblePlans.length === 0 ? (
+              <div className="text-center py-6 text-gray-400 text-sm">
+                No active plans available for this member.
+              </div>
+            ) : (
+              <div className="space-y-3 mb-4">
+                {(['small', 'medium', 'large'] as const).map((cat) =>
+                  groupedPlans[cat].length === 0 ? null : (
+                    <div key={cat}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${categoryStyles[cat]}`}>
+                          {categoryLabels[cat]}
+                        </span>
+                        <span className="text-[10px] text-gray-400">{groupedPlans[cat].length} plan{groupedPlans[cat].length === 1 ? '' : 's'}</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {groupedPlans[cat].map((row) => {
+                          const isSelected = selectedPlanId === row.id;
+                          return (
+                            <button
+                              key={row.id}
+                              type="button"
+                              onClick={() => applyPlan(row)}
+                              className={`text-left min-h-[44px] rounded-xl border px-3 py-2.5 transition-colors ${
+                                isSelected
+                                  ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                                  : 'border-gray-200 bg-gray-50 hover:bg-blue-50 hover:border-blue-300'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-sm font-bold text-gray-900">
+                                  LKR {Math.round(row.principal / 1000)}K
+                                  <span className="text-gray-400 mx-1">→</span>
+                                  LKR {Math.round(row.total_balance / 1000)}K
+                                </span>
+                                {isSelected && <CheckCircle2 className="h-4 w-4 text-blue-600 shrink-0" />}
+                              </div>
+                              <div className="text-[11px] text-gray-500 mt-1">
+                                {formatCurrency(row.weekly_payment)}/wk · {row.duration_weeks}w
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
 
             <div className="space-y-3">
               <div>
