@@ -39,16 +39,20 @@ export async function createMemberAction(formData: FormData) {
     photo_url = fileName;
   }
 
-  const { error } = await supabase.from('members').insert({
-    ...parsed.data,
-    photo_url,
-    created_by: auth.userId,
-  });
+  const { data, error } = await supabase
+    .from('members')
+    .insert({
+      ...parsed.data,
+      photo_url,
+      created_by: auth.userId,
+    })
+    .select('id')
+    .single();
 
   if (error) return { error: safeError(error, 'Could not add member.') };
 
   revalidatePath('/admin/members');
-  return { success: true };
+  return { success: true, memberId: data.id };
 }
 
 export async function updateMemberAction(id: string, formData: FormData) {
