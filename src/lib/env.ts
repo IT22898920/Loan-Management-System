@@ -13,6 +13,9 @@ const envSchema = z.object({
   NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: z.string().min(1).optional(),
   NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET: z.string().min(1).optional(),
   NEXT_PUBLIC_CLOUDINARY_MEMBER_UPLOAD_PRESET: z.string().min(1).optional(),
+  // Staging-only OTP bypass. Only the exact string 'true' has effect.
+  // Production must NEVER set this — admin 2FA is a CBSL audit requirement.
+  DISABLE_ADMIN_OTP: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse({
@@ -22,6 +25,7 @@ const parsed = envSchema.safeParse({
   NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
   NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET: process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET,
   NEXT_PUBLIC_CLOUDINARY_MEMBER_UPLOAD_PRESET: process.env.NEXT_PUBLIC_CLOUDINARY_MEMBER_UPLOAD_PRESET,
+  DISABLE_ADMIN_OTP: process.env.DISABLE_ADMIN_OTP,
 });
 
 if (!parsed.success) {

@@ -108,6 +108,16 @@ export async function loginAction(formData: FormData) {
   // 2. Send a 6-digit OTP to the same email
   // 3. Redirect to /verify-otp where the OTP completes the login
   if (profile?.role === 'admin') {
+    // Staging bypass — Supabase free tier email rate limits make OTP unreliable
+    // for QA workflows. Production must NEVER set DISABLE_ADMIN_OTP=true.
+    if (process.env.DISABLE_ADMIN_OTP === 'true') {
+      console.warn('[loginAction] ADMIN OTP DISABLED via env — staging only');
+      return {
+        success: true,
+        redirectTo: '/admin/dashboard',
+      };
+    }
+
     await supabase.auth.signOut();
 
     const { error: otpErr } = await supabase.auth.signInWithOtp({
