@@ -53,3 +53,7 @@ deno.lock
 # source Excel/docs with sensitive content
 *.xlsx
 *.xls
+
+# Local audit artifacts (contain API tokens + real member data - never commit)
+/Audit/
+*.docx

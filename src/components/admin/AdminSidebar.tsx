@@ -7,7 +7,7 @@ import Image from 'next/image';
 import {
   LayoutDashboard, Building2, Users, UserCog, Upload,
   CreditCard, FileText, LogOut, ChevronRight, Menu, X,
-  PanelLeftClose, PanelLeftOpen, Banknote
+  PanelLeftClose, PanelLeftOpen, Banknote, FileSpreadsheet
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Profile } from '@/types';
@@ -23,6 +23,7 @@ const navItems = [
   { href: '/admin/import', label: 'Excel Import', icon: Upload },
   { href: '/admin/payments', label: 'Payments', icon: CreditCard },
   { href: '/admin/reports', label: 'Reports', icon: FileText },
+  { href: '/admin/audit', label: 'Audit Reports', icon: FileSpreadsheet },
 ];
 
 function SidebarContent({
