@@ -4,13 +4,14 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   FileSpreadsheet, Download, Loader2, CheckCircle2, Circle,
-  HandCoins, Wallet, Scale, CalendarRange, ArrowRight, Info,
+  HandCoins, Wallet, Scale, CalendarRange, ArrowRight, Info, FileText,
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import {
   financialYearOptions, generateAuditReport, downloadAuditWorkbook,
   type AuditTotals, type AuditProgress, type FyOption,
 } from '@/lib/audit-report';
+import { generateAuditPdf } from '@/lib/audit-pdf';
 import type { WorkBook } from 'xlsx';
 
 const REPORT_CONTENTS = [
@@ -68,6 +69,12 @@ export default function AdminAuditPage() {
     if (!workbook || !totals) return;
     downloadAuditWorkbook(workbook, totals.fy.label);
     toast.success('Excel file downloaded');
+  }
+
+  function handleDownloadPdf() {
+    if (!totals) return;
+    generateAuditPdf(totals);
+    toast.success('PDF downloaded');
   }
 
   function pickYear(next: FyOption) {
@@ -219,17 +226,26 @@ export default function AdminAuditPage() {
                     {totals.fy.label} report is ready
                   </p>
                   <p className="text-xs text-emerald-700 mt-0.5">
-                    Excel file with 5 sheets: Summary · Loan Issue · Collections · Outstanding · Notes
+                    Excel: full detail in 5 sheets · PDF: printable center summary
                   </p>
                 </div>
               </div>
-              <button
-                onClick={handleDownload}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 text-white px-6 py-3 text-sm font-semibold shadow-sm hover:bg-emerald-700 transition shrink-0"
-              >
-                <Download className="h-4 w-4" />
-                Download Excel
-              </button>
+              <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+                <button
+                  onClick={handleDownload}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 text-white px-6 py-3 text-sm font-semibold shadow-sm hover:bg-emerald-700 transition"
+                >
+                  <Download className="h-4 w-4" />
+                  Download Excel
+                </button>
+                <button
+                  onClick={handleDownloadPdf}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-emerald-600 text-emerald-700 bg-white px-6 py-3 text-sm font-semibold hover:bg-emerald-50 transition"
+                >
+                  <FileText className="h-4 w-4" />
+                  Download PDF
+                </button>
+              </div>
             </div>
 
             {/* Key numbers */}
