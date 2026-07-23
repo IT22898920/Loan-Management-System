@@ -26,8 +26,37 @@ function PaymentForm() {
 
   const [amount, setAmount] = useState(weekly.toString());
   const [isNotPaid, setIsNotPaid] = useState(false);
+  const [isSettlement, setIsSettlement] = useState(false);
   const [saving, setSaving] = useState(false);
   const [gpsLoading, setGpsLoading] = useState(false);
+
+  // Live remaining balance from DB — the URL param goes stale if today's weekly
+  // payment was already recorded before this page was opened again.
+  const [liveBalance, setLiveBalance] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!loanId) return;
+    let alive = true;
+    (async () => {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from('loans')
+        .select('loan_balance')
+        .eq('id', loanId)
+        .maybeSingle();
+      if (!alive || !data) return;
+      setLiveBalance(Number(data.loan_balance));
+    })();
+    return () => { alive = false; };
+  }, [loanId]);
+
+  const remainingBalance = liveBalance ?? balance;
+
+  // Settlement locks the amount to the remaining balance (also re-syncs if the
+  // live balance arrives after the toggle was switched on).
+  useEffect(() => {
+    if (isSettlement) setAmount(remainingBalance.toString());
+  }, [isSettlement, remainingBalance]);
 
   // Member identity loaded from DB (prevents same-day cross-center misclicks
   // where the URL params might point at the wrong loan).
@@ -60,7 +89,17 @@ function PaymentForm() {
 
   const amountNum = parseFloat(amount) || 0;
   const shortfall = !isNotPaid && amountNum > 0 && amountNum < weekly ? weekly - amountNum : 0;
-  const willComplete = !isNotPaid && amountNum >= balance;
+  const willComplete = !isNotPaid && remainingBalance > 0 && amountNum >= remainingBalance;
+
+  function toggleSettlement() {
+    if (isSettlement) {
+      setIsSettlement(false);
+      setAmount(weekly.toString());
+    } else {
+      setIsNotPaid(false);
+      setIsSettlement(true);
+    }
+  }
 
   const planLabel = principal > 0 ? `Rs. ${principal.toLocaleString()} loan` : 'Loan payment';
 
@@ -94,27 +133,36 @@ function PaymentForm() {
     fd.append('member_id', memberId);
     fd.append('amount_paid', isNotPaid ? '0' : amount);
     fd.append('is_not_paid', isNotPaid.toString());
+    fd.append('is_settlement', isSettlement.toString());
     fd.append('gps_lat', gps.lat.toString());
     fd.append('gps_lng', gps.lng.toString());
     fd.append('gps_address', gps.address);
 
-    const result = await recordPaymentAction(fd);
-    setSaving(false);
+    // A dropped connection must not leave the button stuck on "Saving…" with
+    // no feedback — retry is safe because the server's duplicate/idempotency
+    // guards absorb a resubmit of the same payment.
+    try {
+      const result = await recordPaymentAction(fd);
 
-    if (result?.error) {
-      toast.error(result.error);
-      return;
+      if (result?.error) {
+        toast.error(result.error);
+        return;
+      }
+
+      if (result?.isCompleted) {
+        toast.success('ගෙවීම සටහන් විය! ණය සම්පූර්ණයි!');
+      } else {
+        toast.success('ගෙවීම සටහන් විය!');
+      }
+
+      router.back();
+      // Ensure the destination page re-fetches (loan_balance, alerts etc.).
+      router.refresh();
+    } catch {
+      toast.error('Connection error — ගෙවීම record වුණාද කියා ස්ථිර නැත. නැවත Save කරන්න (duplicate safe).');
+    } finally {
+      setSaving(false);
     }
-
-    if (result?.isCompleted) {
-      toast.success('ගෙවීම සටහන් විය! ණය සම්පූර්ණයි!');
-    } else {
-      toast.success('ගෙවීම සටහන් විය!');
-    }
-
-    router.back();
-    // Ensure the destination page re-fetches (loan_balance, alerts etc.).
-    router.refresh();
   }
 
   return (
@@ -159,7 +207,7 @@ function PaymentForm() {
         <div className="flex gap-3 flex-wrap">
           <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-2.5 border border-white/20">
             <p className="text-[10px] text-blue-200">Loan Balance</p>
-            <p className="font-bold">{formatCurrency(balance)}</p>
+            <p className="font-bold">{formatCurrency(remainingBalance)}</p>
           </div>
           <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-2.5 border border-white/20">
             <p className="text-[10px] text-blue-200">Weekly Due</p>
@@ -186,7 +234,13 @@ function PaymentForm() {
             </button>
             <button
               type="button"
-              onClick={() => setIsNotPaid(true)}
+              onClick={() => {
+                setIsNotPaid(true);
+                // Leaving settlement mode via N/P must also drop the locked
+                // full-balance amount, or "Paid" re-arms with the wrong figure.
+                if (isSettlement) setAmount(weekly.toString());
+                setIsSettlement(false);
+              }}
               className={`rounded-xl py-3.5 font-semibold text-sm transition-all ${
                 isNotPaid
                   ? 'bg-red-500 text-white shadow-sm'
@@ -209,29 +263,66 @@ function PaymentForm() {
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 min="1"
-                max={balance.toString()}
+                max={remainingBalance.toString()}
                 step="0.01"
-                className="text-2xl h-14 font-bold text-center pl-12 rounded-xl border-gray-200"
+                disabled={isSettlement}
+                className="text-2xl h-14 font-bold text-center pl-12 rounded-xl border-gray-200 disabled:opacity-100 disabled:bg-emerald-50"
                 required
               />
             </div>
             <div className="flex gap-3 mt-3">
               <button
                 type="button"
-                onClick={() => setAmount(weekly.toString())}
+                onClick={() => { setIsSettlement(false); setAmount(weekly.toString()); }}
                 className="flex-1 min-h-[44px] text-sm font-medium text-primary bg-primary/10 py-3 rounded-xl hover:bg-primary/20 transition-colors"
               >
                 Weekly ({formatCurrency(weekly)})
               </button>
-              <button
-                type="button"
-                onClick={() => setAmount(balance.toString())}
-                className="flex-1 min-h-[44px] text-sm font-medium text-amber-700 bg-amber-50 py-3 rounded-xl hover:bg-amber-100 transition-colors"
-              >
-                Full Balance ({formatCurrency(balance)})
-              </button>
             </div>
           </div>
+        )}
+
+        {/* FULL SETTLEMENT — clears the remaining loan balance in this visit,
+            even if today's weekly payment was already recorded. */}
+        {!isNotPaid && remainingBalance > 0 && (
+          <button
+            type="button"
+            onClick={toggleSettlement}
+            className={`w-full text-left rounded-2xl border p-5 transition-all ${
+              isSettlement
+                ? 'bg-emerald-50 border-emerald-300 shadow-sm'
+                : 'bg-white border-gray-100 shadow-sm hover:border-emerald-200'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                  isSettlement ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-700'
+                }`}
+              >
+                <CheckCircle2 className="h-5 w-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm text-gray-800">Settle full balance</p>
+                <p className="text-xs text-muted-foreground">
+                  Remaining: <strong>{formatCurrency(remainingBalance)}</strong>
+                </p>
+              </div>
+              <span
+                className={`text-xs font-semibold px-3 py-1.5 rounded-full transition-colors ${
+                  isSettlement ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-500'
+                }`}
+              >
+                {isSettlement ? 'ON' : 'OFF'}
+              </span>
+            </div>
+            {isSettlement && (
+              <p className="mt-3 text-xs font-medium text-emerald-800 bg-emerald-100 rounded-lg px-3 py-2">
+                This clears the loan completely — {formatCurrency(remainingBalance)} will be
+                collected and the loan marked as completed.
+              </p>
+            )}
+          </button>
         )}
 
         {/* Previous outstanding shortfall banner */}
@@ -245,7 +336,18 @@ function PaymentForm() {
               </p>
               <button
                 type="button"
-                onClick={() => setAmount((weekly + prevShortfall).toString())}
+                onClick={() => {
+                  // Near loan end weekly+shortfall can exceed the remaining
+                  // balance, which the input's max would silently block — in
+                  // that case the correct move IS full settlement, so arm it.
+                  if (remainingBalance > 0 && weekly + prevShortfall >= remainingBalance) {
+                    setIsNotPaid(false);
+                    setIsSettlement(true);
+                  } else {
+                    setIsSettlement(false);
+                    setAmount((weekly + prevShortfall).toString());
+                  }
+                }}
                 className="mt-2 min-h-[44px] text-sm font-semibold text-red-700 bg-red-100 hover:bg-red-200 px-4 py-2.5 rounded-lg transition-colors"
               >
                 Weekly + Clear Shortfall ({formatCurrency(weekly + prevShortfall)})
@@ -254,8 +356,8 @@ function PaymentForm() {
           </div>
         )}
 
-        {/* Shortfall warning */}
-        {shortfall > 0 && (
+        {/* Shortfall warning (not shown when the payment completes the loan) */}
+        {shortfall > 0 && !willComplete && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4 flex items-start gap-3">
             <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
             <div>
@@ -267,8 +369,8 @@ function PaymentForm() {
           </div>
         )}
 
-        {/* Loan completion notice */}
-        {willComplete && (
+        {/* Loan completion notice (settlement card shows its own confirmation) */}
+        {willComplete && !isSettlement && (
           <div className="bg-green-50 border border-green-200 rounded-2xl px-5 py-4 flex items-start gap-3">
             <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0 mt-0.5" />
             <div>
@@ -302,6 +404,11 @@ function PaymentForm() {
             </>
           ) : isNotPaid ? (
             'Mark as Not Paid'
+          ) : isSettlement ? (
+            <>
+              <CheckCircle2 className="h-5 w-5 mr-2" />
+              Settle Loan ({formatCurrency(remainingBalance)})
+            </>
           ) : (
             <>
               <Banknote className="h-5 w-5 mr-2" />
