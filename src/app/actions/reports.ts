@@ -156,6 +156,13 @@ const reportSchema = z.object({
   loan_issued: z.coerce.number().min(0),
 });
 
+/** Members without a payment record today, grouped per center for display. */
+export interface UncollectedCenterGroup {
+  center_name: string;
+  center_number: number;
+  members: string[];
+}
+
 export async function saveReportAction(formData: FormData) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -188,11 +195,16 @@ export async function saveReportAction(formData: FormData) {
 
     const { data: assignments } = await supabase
       .from('staff_center_assignments')
-      .select('center_id')
+      .select('center_id, center:centers(name, center_number)')
       .eq('staff_id', user.id)
       .eq('day_of_week', todayDay);
 
-    const centerIds = (assignments ?? []).map((a: { center_id: string }) => a.center_id);
+    const assignmentRows = (assignments ?? []) as unknown as {
+      center_id: string;
+      center: { name: string; center_number: number } | null;
+    }[];
+    const centerIds = assignmentRows.map((a) => a.center_id);
+    const centerById = new Map(assignmentRows.map((a) => [a.center_id, a.center]));
 
     if (centerIds.length > 0) {
       // Active loans issued before this week (i.e., payment is due today)
@@ -218,10 +230,35 @@ export async function saveReportAction(formData: FormData) {
         const missing = dueLoans.filter((l) => !recordedLoanIds.has(l.id));
 
         if (missing.length > 0) {
-          const names = missing
-            .map((l) => l.member?.full_name ?? 'Unknown')
-            .join(', ');
-          return { error: `පහත members ගේ payment records නැත — submit කිරීමට පෙර Paid/Shortfall/N/P ලෙස සටහන් කරන්න:\n${names}` };
+          // Group missing members per center so the UI can show exactly which
+          // center still needs attention instead of one flat name list.
+          const groupsByCenter = new Map<string, UncollectedCenterGroup>();
+          for (const l of missing) {
+            const cid = l.member?.center_id ?? 'unknown';
+            let group = groupsByCenter.get(cid);
+            if (!group) {
+              const center = centerById.get(cid);
+              group = {
+                center_name: center?.name ?? 'Unknown Center',
+                center_number: center?.center_number ?? 0,
+                members: [],
+              };
+              groupsByCenter.set(cid, group);
+            }
+            group.members.push(l.member?.full_name ?? 'Unknown');
+          }
+          const uncollected = [...groupsByCenter.values()].sort(
+            (a, b) => a.center_number - b.center_number
+          );
+
+          // Backwards-compatible flat message for callers that only read `error`.
+          const names = uncollected
+            .map((g) => `${g.center_name}: ${g.members.join(', ')}`)
+            .join('\n');
+          return {
+            error: `පහත members ගේ payment records නැත — submit කිරීමට පෙර Paid/Shortfall/N/P ලෙස සටහන් කරන්න:\n${names}`,
+            uncollected,
+          };
         }
       }
     }

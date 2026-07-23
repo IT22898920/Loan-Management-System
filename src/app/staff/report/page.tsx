@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { generateDailyReportPDF, ReportCenter } from '@/lib/pdf-report';
-import { saveReportAction, getStaffReportDataAction } from '@/app/actions/reports';
+import { saveReportAction, getStaffReportDataAction, UncollectedCenterGroup } from '@/app/actions/reports';
 import { formatCurrency, formatDate, getTodayString } from '@/lib/utils';
 
 interface CenterReport {
@@ -26,6 +26,7 @@ export default function StaffReportPage() {
   const [existingCashIssued, setExistingCashIssued] = useState<number | null>(null);
   const [loanIssued, setLoanIssued] = useState('0');
   const [saving, setSaving] = useState(false);
+  const [uncollected, setUncollected] = useState<UncollectedCenterGroup[]>([]);
 
   const today = getTodayString();
 
@@ -89,11 +90,29 @@ export default function StaffReportPage() {
     const fd = new FormData();
     fd.append('loan_issued', loanIssued);
 
-    const result = await saveReportAction(fd);
-    setSaving(false);
-
-    if (result?.error) { toast.error(result.error); return; }
-    toast.success('Report submitted successfully!');
+    // Only touch the uncollected list once a response actually arrives — a
+    // dropped connection must not wipe the staff member's to-do list or leave
+    // the button stuck on "Submitting…".
+    try {
+      const result = await saveReportAction(fd);
+      if (result?.error) {
+        if (result.uncollected && result.uncollected.length > 0) {
+          // Grouped per-center list renders below — keep the toast short.
+          setUncollected(result.uncollected);
+          toast.error('Payment records missing — check the list below');
+        } else {
+          setUncollected([]);
+          toast.error(result.error);
+        }
+        return;
+      }
+      setUncollected([]);
+      toast.success('Report submitted successfully!');
+    } catch {
+      toast.error('Connection error — report not submitted. Try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (loading) {
@@ -301,6 +320,43 @@ export default function StaffReportPage() {
           </div>
         </div>
       </div>
+
+      {/* Uncollected members — grouped by center (submit validation) */}
+      {uncollected.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm border border-red-100 overflow-hidden mb-4">
+          <div className="px-5 py-4 border-b border-red-100 bg-red-50/60 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-red-900">Uncollected Members</h2>
+              <p className="text-xs text-red-700/90 leading-snug" lang="si">
+                submit කිරීමට පෙර පහත members Paid/Shortfall/N/P ලෙස සටහන් කරන්න
+              </p>
+            </div>
+          </div>
+          <div className="p-4 space-y-3">
+            {uncollected.map((g) => (
+              <div key={`${g.center_number}-${g.center_name}`} className="rounded-xl border border-red-100 overflow-hidden">
+                <div className="px-4 py-2.5 bg-red-50/60 border-b border-red-100 flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-red-900 truncate">{g.center_name}</p>
+                  <span className="text-[10px] font-semibold text-red-700 bg-red-100 px-2 py-0.5 rounded-full shrink-0">
+                    Center {g.center_number} · {g.members.length}
+                  </span>
+                </div>
+                <ul className="px-4 py-2.5 space-y-1.5">
+                  {g.members.map((name, i) => (
+                    <li key={i} className="flex items-center gap-2 text-sm text-gray-800">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                      {name}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Action buttons */}
       <div className="flex gap-3">

@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { Plus, UserCog, CalendarDays, ArrowRight, Search, X, Loader2, Pencil } from 'lucide-react';
+import { Plus, UserCog, MapPin, Search, X, Loader2, Pencil } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { DAYS_OF_WEEK } from '@/types';
 
@@ -129,8 +129,10 @@ export default function StaffPage() {
 
               return (
                 <div key={member.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-all">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-3">
+                  {/* flex-wrap lets the action pair drop to its own line on
+                      narrow phones instead of crushing the name to ellipsis */}
+                  <div className="flex items-start justify-between gap-y-2 flex-wrap mb-4">
+                    <div className="flex items-center gap-3 min-w-0">
                       <div className={`w-11 h-11 rounded-xl ${COLORS[i % COLORS.length]} flex items-center justify-center text-white font-bold text-lg shrink-0`}>
                         {member.full_name.charAt(0).toUpperCase()}
                       </div>
@@ -139,19 +141,20 @@ export default function StaffPage() {
                         <p className="text-xs text-muted-foreground truncate">{member.email}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1.5 ml-auto">
                       <Link
                         href={`/admin/staff/${member.id}/edit`}
                         title="Edit staff details"
-                        className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 px-2.5 py-1.5 rounded-lg transition-colors"
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg transition-colors"
                       >
-                        <Pencil className="h-3.5 w-3.5" />
+                        <Pencil className="h-3.5 w-3.5" /> Edit
                       </Link>
                       <Link
                         href={`/admin/staff/${member.id}/assignments`}
+                        title="Assign centers"
                         className="inline-flex items-center gap-1.5 text-xs font-medium text-primary bg-primary/5 hover:bg-primary/10 px-3 py-1.5 rounded-lg transition-colors"
                       >
-                        <CalendarDays className="h-3.5 w-3.5" /> Assign
+                        <MapPin className="h-3.5 w-3.5" /> Assign Centers
                       </Link>
                     </div>
                   </div>
@@ -174,18 +177,10 @@ export default function StaffPage() {
                     ))}
                   </div>
 
-                  <div className="mt-3 flex items-center justify-between">
+                  <div className="mt-3">
                     <span className="text-xs text-muted-foreground">
                       {totalAsgn} assignment{totalAsgn !== 1 ? 's' : ''} this week
                     </span>
-                    <div className="flex items-center gap-3 text-xs">
-                      <Link href={`/admin/staff/${member.id}/edit`} className="inline-flex items-center gap-1 text-muted-foreground hover:text-gray-700 transition-colors">
-                        <Pencil className="h-3 w-3" /> Edit
-                      </Link>
-                      <Link href={`/admin/staff/${member.id}/assignments`} className="inline-flex items-center gap-1 text-muted-foreground hover:text-primary transition-colors">
-                        Schedule <ArrowRight className="h-3 w-3" />
-                      </Link>
-                    </div>
                   </div>
                 </div>
               );
