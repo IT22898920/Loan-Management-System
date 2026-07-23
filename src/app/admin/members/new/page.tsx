@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Loader2, ArrowLeft, Upload, UserPlus, Banknote, CheckCircle2, Info } from 'lucide-react';
+import { Loader2, ArrowLeft, Upload, UserPlus, Banknote, CheckCircle2, Info, X } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +23,7 @@ export default function NewMemberPage() {
   const [saving, setSaving] = useState(false);
   const [centerId, setCenterId] = useState('');
   const [preview, setPreview] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const [plans, setPlans] = useState<LoanPlan[]>([]);
   const [plansLoading, setPlansLoading] = useState(true);
@@ -136,6 +137,14 @@ export default function NewMemberPage() {
     if (file) setPreview(URL.createObjectURL(file));
   }
 
+  function handlePhotoRemove(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (photoInputRef.current) photoInputRef.current.value = '';
+    if (preview) URL.revokeObjectURL(preview);
+    setPreview(null);
+  }
+
   return (
     <div className="min-h-screen bg-gray-50/50">
       {/* Header */}
@@ -161,7 +170,7 @@ export default function NewMemberPage() {
             <div className="space-y-5">
               {/* Photo upload */}
               <div className="flex justify-center">
-                <label className="cursor-pointer group">
+                <label className="cursor-pointer group relative">
                   <div className="w-28 h-28 rounded-2xl bg-gray-50 border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden group-hover:border-primary transition-colors">
                     {preview ? (
                       <Image src={preview} alt="Preview" width={112} height={112} className="w-full h-full object-cover" />
@@ -172,8 +181,21 @@ export default function NewMemberPage() {
                       </div>
                     )}
                   </div>
-                  <input type="file" name="photo" accept="image/*" className="hidden" onChange={handlePhotoChange} />
-                  <p className="text-xs text-center text-muted-foreground mt-2">Upload Photo (optional)</p>
+                  {preview && (
+                    <button
+                      type="button"
+                      onClick={handlePhotoRemove}
+                      title="Remove photo"
+                      aria-label="Remove photo"
+                      className="absolute -top-2 -right-2 h-7 w-7 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md hover:bg-red-600 transition-colors"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                  <input ref={photoInputRef} type="file" name="photo" accept="image/*" className="hidden" onChange={handlePhotoChange} />
+                  <p className="text-xs text-center text-muted-foreground mt-2">
+                    {preview ? 'Tap photo to change · X to remove' : 'Upload Photo (optional)'}
+                  </p>
                 </label>
               </div>
 
