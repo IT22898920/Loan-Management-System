@@ -133,19 +133,28 @@ export function generateAuditPdf(totals: AuditTotals): void {
             'Collected', 'Cap. Collected', 'Int. Collected',
             'O/S Capital', 'O/S Interest', 'O/S Total']],
     body: rows,
-    styles: { fontSize: 7.5, cellPadding: 2.5 },
-    headStyles: { fillColor: BLUE, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
+    styles: { fontSize: 7.5, cellPadding: 2.5, overflow: 'linebreak' },
+    headStyles: {
+      fillColor: BLUE, textColor: [255, 255, 255], fontStyle: 'bold',
+      fontSize: 6.8, halign: 'right', valign: 'middle',
+    },
     alternateRowStyles: { fillColor: [248, 250, 252] },
+    // Fixed widths on every column so headings and figures stay aligned:
+    // 10 + 41 + 12 + 8 x 25.75 = 269mm = full landscape width inside margins.
     columnStyles: {
-      0: { cellWidth: 10 },
-      1: { cellWidth: 45 },
-      2: { halign: 'right', cellWidth: 14 },
-      3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' },
-      6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' },
-      9: { halign: 'right' }, 10: { halign: 'right' },
+      0: { cellWidth: 10, halign: 'left' },
+      1: { cellWidth: 41, halign: 'left' },
+      2: { halign: 'right', cellWidth: 12 },
+      3: { halign: 'right', cellWidth: 25.75 }, 4: { halign: 'right', cellWidth: 25.75 },
+      5: { halign: 'right', cellWidth: 25.75 }, 6: { halign: 'right', cellWidth: 25.75 },
+      7: { halign: 'right', cellWidth: 25.75 }, 8: { halign: 'right', cellWidth: 25.75 },
+      9: { halign: 'right', cellWidth: 25.75 }, 10: { halign: 'right', cellWidth: 25.75 },
     },
     margin: { left: 14, right: 14 },
     didParseCell: (data) => {
+      if (data.section === 'head' && data.column.index <= 1) {
+        data.cell.styles.halign = 'left';
+      }
       if (data.row.index === rows.length - 1 && data.section === 'body') {
         data.cell.styles.fontStyle = 'bold';
         data.cell.styles.fillColor = [219, 234, 254];

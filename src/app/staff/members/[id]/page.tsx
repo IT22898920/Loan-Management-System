@@ -20,22 +20,21 @@ export default async function StaffMemberProfilePage({ params }: { params: Promi
 
   if (!member) notFound();
 
+  // Staff RLS hides completed loans, so a member who finished their loan today
+  // legitimately has zero visible active loans — render the profile with a
+  // "completed" state instead of bouncing the user back to the dashboard.
   const activeLoans = (member.loans ?? []).filter((l: { status: string }) => l.status === 'active');
-
-  if (activeLoans.length === 0) {
-    redirect('/staff/dashboard');
-  }
-
-  const loanIds = activeLoans.map((l: { id: string }) => l.id);
 
   const fourWeeksAgo = new Date();
   fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
   const fourWeeksAgoString = `${fourWeeksAgo.getFullYear()}-${String(fourWeeksAgo.getMonth() + 1).padStart(2, '0')}-${String(fourWeeksAgo.getDate()).padStart(2, '0')}`;
 
+  // Query by member (not loan ids) so history still shows when the loan
+  // itself is no longer visible to staff (completed today).
   const { data: recentPayments } = await supabase
     .from('payments')
     .select('*, loan:loans(principal)')
-    .in('loan_id', loanIds)
+    .eq('member_id', id)
     .gte('payment_date', fourWeeksAgoString)
     .order('payment_date', { ascending: false })
     .limit(16);
@@ -56,8 +55,11 @@ export default async function StaffMemberProfilePage({ params }: { params: Promi
     <div className="pb-24">
       {/* Gradient Header */}
       <div className="bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 text-white -mx-4 px-4 pt-4 pb-6 mb-5">
-        <Link href="/staff/dashboard" className="inline-flex items-center gap-2 text-blue-200 hover:text-white text-sm mb-3 transition-colors">
-          <ArrowLeft className="h-4 w-4" /> Back
+        <Link
+          href={member.center_id ? `/staff/centers/${member.center_id}` : '/staff/dashboard'}
+          className="inline-flex items-center gap-2 text-blue-200 hover:text-white text-sm mb-3 transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" /> Back{center ? ` to ${center.name}` : ''}
         </Link>
 
         <div className="flex items-center gap-4 mb-4">
@@ -125,6 +127,17 @@ export default async function StaffMemberProfilePage({ params }: { params: Promi
           </div>
           <h2 className="font-semibold text-gray-900">Active Loans</h2>
         </div>
+        {activeLoans.length === 0 && (
+          <div className="px-5 py-6 flex items-center gap-3">
+            <CheckCircle2 className="h-6 w-6 text-green-600 shrink-0" />
+            <div>
+              <p className="font-semibold text-green-700 text-sm">No active loans</p>
+              <p className="text-xs text-muted-foreground">
+                This member&apos;s loan is fully settled. Payment history stays available below.
+              </p>
+            </div>
+          </div>
+        )}
         <div className="divide-y divide-gray-50">
           {activeLoans.map((loan: { id: string; loan_plan: number | null; principal: number | null; loan_balance: number; weekly_payment: number; issued_date: string }) => (
             <div key={loan.id} className="px-5 py-4">
