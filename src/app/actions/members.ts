@@ -30,7 +30,9 @@ function likeLiteral(s: string): string {
 }
 
 /**
- * True when another ACTIVE member already uses this number + name pair.
+ * True when another ACTIVE member in the SAME CENTER already uses this
+ * number + name pair. Center-scoped because legacy books legitimately carry
+ * the same member across two centers (191 such active pairs in production).
  * Number compared case-insensitively (charset has no wildcard chars); name
  * pattern is escaped so % and _ in typed input match literally.
  */
@@ -38,6 +40,7 @@ async function activeDuplicateExists(
   supabase: Awaited<ReturnType<typeof createClient>>,
   member_number: string,
   full_name: string,
+  center_id: string,
   excludeId?: string
 ): Promise<boolean> {
   let q = supabase
@@ -45,6 +48,7 @@ async function activeDuplicateExists(
     .select('id')
     .ilike('member_number', member_number)
     .ilike('full_name', likeLiteral(full_name))
+    .eq('center_id', center_id)
     .is('archived_at', null)
     .limit(1);
   if (excludeId) q = q.neq('id', excludeId);
@@ -68,9 +72,9 @@ export async function createMemberAction(formData: FormData) {
   // Block exact duplicates (same member number AND same name, not archived).
   // member_number alone is deliberately NOT unique — legacy books reuse
   // numbers across centers — so only the exact pair is rejected (QA 86eydenvg).
-  if (await activeDuplicateExists(supabase, parsed.data.member_number, parsed.data.full_name)) {
+  if (await activeDuplicateExists(supabase, parsed.data.member_number, parsed.data.full_name, parsed.data.center_id)) {
     return {
-      error: `A member named "${parsed.data.full_name}" with number ${parsed.data.member_number} already exists.`,
+      error: `A member named "${parsed.data.full_name}" with number ${parsed.data.member_number} already exists in this center.`,
     };
   }
 
@@ -128,9 +132,9 @@ export async function updateMemberAction(id: string, formData: FormData) {
 
   // Renaming/renumbering into an existing active pair recreates the duplicate
   // the create form blocks — guard the edit path with the same check.
-  if (await activeDuplicateExists(supabase, parsed.data.member_number, parsed.data.full_name, id)) {
+  if (await activeDuplicateExists(supabase, parsed.data.member_number, parsed.data.full_name, parsed.data.center_id, id)) {
     return {
-      error: `Another member named "${parsed.data.full_name}" with number ${parsed.data.member_number} already exists.`,
+      error: `Another member named "${parsed.data.full_name}" with number ${parsed.data.member_number} already exists in this center.`,
     };
   }
 
