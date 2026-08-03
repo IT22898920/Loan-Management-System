@@ -80,3 +80,13 @@ input:-webkit-autofill:focus {
   caret-color: hsl(var(--foreground));
   transition: background-color 5000s ease-in-out 0s;
 }
+
+/* Login page inputs sit on a dark gradient — autofill matches that look
+   instead of flashing an opaque white pill between dark fields. */
+.login-input-dark:-webkit-autofill,
+.login-input-dark:-webkit-autofill:hover,
+.login-input-dark:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px hsl(222 47% 18%) inset;
+  -webkit-text-fill-color: #ffffff;
+  caret-color: #ffffff;
+}

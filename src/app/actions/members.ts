@@ -12,12 +12,45 @@ import { z } from 'zod';
 const memberSchema = z.object({
   member_number: z
     .string()
+    .trim()
     .min(1, 'Member number is required')
     .max(30, 'Member number is too long')
     .regex(/^[A-Za-z0-9/-]+$/, 'Member number can only contain letters, numbers, "-" and "/" (no spaces)'),
-  full_name: z.string().min(1, 'Full name is required'),
+  full_name: z
+    .string()
+    .trim()
+    .min(1, 'Full name is required')
+    .transform((s) => s.replace(/\s+/g, ' ')),
   center_id: z.string().uuid('Invalid center'),
 });
+
+/** Escape ilike pattern metacharacters so a typed name is matched literally. */
+function likeLiteral(s: string): string {
+  return s.replace(/[%_\\]/g, '\\$&');
+}
+
+/**
+ * True when another ACTIVE member already uses this number + name pair.
+ * Number compared case-insensitively (charset has no wildcard chars); name
+ * pattern is escaped so % and _ in typed input match literally.
+ */
+async function activeDuplicateExists(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  member_number: string,
+  full_name: string,
+  excludeId?: string
+): Promise<boolean> {
+  let q = supabase
+    .from('members')
+    .select('id')
+    .ilike('member_number', member_number)
+    .ilike('full_name', likeLiteral(full_name))
+    .is('archived_at', null)
+    .limit(1);
+  if (excludeId) q = q.neq('id', excludeId);
+  const { data } = await q.maybeSingle();
+  return !!data;
+}
 
 export async function createMemberAction(formData: FormData) {
   const auth = await requireAdmin();
@@ -35,15 +68,7 @@ export async function createMemberAction(formData: FormData) {
   // Block exact duplicates (same member number AND same name, not archived).
   // member_number alone is deliberately NOT unique — legacy books reuse
   // numbers across centers — so only the exact pair is rejected (QA 86eydenvg).
-  const { data: dup } = await supabase
-    .from('members')
-    .select('id')
-    .eq('member_number', parsed.data.member_number)
-    .ilike('full_name', parsed.data.full_name)
-    .is('archived_at', null)
-    .limit(1)
-    .maybeSingle();
-  if (dup) {
+  if (await activeDuplicateExists(supabase, parsed.data.member_number, parsed.data.full_name)) {
     return {
       error: `A member named "${parsed.data.full_name}" with number ${parsed.data.member_number} already exists.`,
     };
@@ -73,7 +98,16 @@ export async function createMemberAction(formData: FormData) {
     .select('id')
     .single();
 
-  if (error) return { error: safeError(error, 'Could not add member.') };
+  if (error) {
+    // 23505 = the partial unique index caught a concurrent duplicate insert
+    // that raced past the pre-check.
+    if ((error as { code?: string }).code === '23505') {
+      return {
+        error: `A member named "${parsed.data.full_name}" with number ${parsed.data.member_number} already exists.`,
+      };
+    }
+    return { error: safeError(error, 'Could not add member.') };
+  }
 
   revalidatePath('/admin/members');
   return { success: true, memberId: data.id };
@@ -91,6 +125,14 @@ export async function updateMemberAction(id: string, formData: FormData) {
   });
 
   if (!parsed.success) return { error: parsed.error.errors[0].message };
+
+  // Renaming/renumbering into an existing active pair recreates the duplicate
+  // the create form blocks — guard the edit path with the same check.
+  if (await activeDuplicateExists(supabase, parsed.data.member_number, parsed.data.full_name, id)) {
+    return {
+      error: `Another member named "${parsed.data.full_name}" with number ${parsed.data.member_number} already exists.`,
+    };
+  }
 
   let photo_url: string | undefined;
   const photoFile = formData.get('photo') as File | null;
