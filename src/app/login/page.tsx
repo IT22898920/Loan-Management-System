@@ -77,7 +77,7 @@ export default function LoginPage() {
                   name="email"
                   type="email"
                   placeholder="you@example.com"
-                  className="pl-10 bg-white/10 border-white/10 text-white placeholder:text-white/20 rounded-xl focus:ring-cyan-500/50 focus:border-cyan-500/50"
+                  className="login-input-dark pl-10 bg-white/10 border-white/10 text-white placeholder:text-white/20 rounded-xl focus:ring-cyan-500/50 focus:border-cyan-500/50"
                   required
                   autoComplete="email"
                 />
@@ -93,7 +93,7 @@ export default function LoginPage() {
                   name="password"
                   type="password"
                   placeholder="••••••••"
-                  className="pl-10 bg-white/10 border-white/10 text-white placeholder:text-white/20 rounded-xl focus:ring-cyan-500/50 focus:border-cyan-500/50"
+                  className="login-input-dark pl-10 bg-white/10 border-white/10 text-white placeholder:text-white/20 rounded-xl focus:ring-cyan-500/50 focus:border-cyan-500/50"
                   required
                   autoComplete="current-password"
                 />
