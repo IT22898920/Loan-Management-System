@@ -45,7 +45,9 @@ export default function AdminReportsPage() {
     const supabase = createClient();
     supabase
       .from('daily_reports')
-      .select(`id, report_date, cash_issued, loan_issued, submitted_at, staff_id, staff:profiles(full_name, email)`)
+      // profiles is reachable via TWO FKs (staff_id + cash_issued_by), so the
+      // embed must name the constraint or PostgREST 300s with PGRST201.
+      .select(`id, report_date, cash_issued, loan_issued, submitted_at, staff_id, staff:profiles!daily_reports_staff_id_fkey(full_name, email)`)
       .order('report_date', { ascending: false })
       .limit(1000)
       .then(({ data, error }) => {
