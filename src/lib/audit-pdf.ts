@@ -90,7 +90,12 @@ export function generateAuditPdf(totals: AuditTotals): void {
         formatCurrency(totals.osCapital + totals.osInterest)],
     ],
     styles: { fontSize: 9, cellPadding: 3.5 },
-    headStyles: { fillColor: BLUE, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
+    // Headers right-aligned to sit directly over the right-aligned figures —
+    // centered headings read as misaligned columns (QA 86eycpmf2 reopen).
+    headStyles: {
+      fillColor: BLUE, textColor: [255, 255, 255], fontStyle: 'bold',
+      fontSize: 8.5, halign: 'right',
+    },
     alternateRowStyles: { fillColor: [248, 250, 252] },
     columnStyles: {
       0: { fontStyle: 'bold', cellWidth: 70 },
@@ -99,6 +104,11 @@ export function generateAuditPdf(totals: AuditTotals): void {
       3: { halign: 'right', cellWidth: 55 },
     },
     margin: { left: 14, right: 14 },
+    didParseCell: (data) => {
+      if (data.section === 'head' && data.column.index === 0) {
+        data.cell.styles.halign = 'left';
+      }
+    },
   });
 
   // ── Center table ───────────────────────────────────────────────────────────

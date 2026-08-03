@@ -6,8 +6,15 @@ import { requireAdmin } from '@/lib/auth-guard';
 import { safeError } from '@/lib/safe-error';
 import { z } from 'zod';
 
+// Member numbers are alphanumeric by design — real books use formats like
+// DLK0796, MBR-017 and D/107/001, so numeric-only validation would reject
+// existing numbering schemes (QA 86eyezphc). Allowed: letters, digits, - and /.
 const memberSchema = z.object({
-  member_number: z.string().min(1, 'Member number is required'),
+  member_number: z
+    .string()
+    .min(1, 'Member number is required')
+    .max(30, 'Member number is too long')
+    .regex(/^[A-Za-z0-9/-]+$/, 'Member number can only contain letters, numbers, "-" and "/" (no spaces)'),
   full_name: z.string().min(1, 'Full name is required'),
   center_id: z.string().uuid('Invalid center'),
 });
@@ -24,6 +31,23 @@ export async function createMemberAction(formData: FormData) {
   });
 
   if (!parsed.success) return { error: parsed.error.errors[0].message };
+
+  // Block exact duplicates (same member number AND same name, not archived).
+  // member_number alone is deliberately NOT unique — legacy books reuse
+  // numbers across centers — so only the exact pair is rejected (QA 86eydenvg).
+  const { data: dup } = await supabase
+    .from('members')
+    .select('id')
+    .eq('member_number', parsed.data.member_number)
+    .ilike('full_name', parsed.data.full_name)
+    .is('archived_at', null)
+    .limit(1)
+    .maybeSingle();
+  if (dup) {
+    return {
+      error: `A member named "${parsed.data.full_name}" with number ${parsed.data.member_number} already exists.`,
+    };
+  }
 
   let photo_url: string | null = null;
   const photoFile = formData.get('photo') as File | null;

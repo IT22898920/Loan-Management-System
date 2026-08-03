@@ -6,8 +6,11 @@ import { Toaster } from '@/components/ui/sonner';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Loan Management System',
-  description: 'Secure GPS-tracked loan management for field staff',
+  title: {
+    default: 'DIRIYALANKA | Loan Management System',
+    template: '%s | DIRIYALANKA',
+  },
+  description: 'DIRIYALANKA CREDIT — secure GPS-tracked loan management for field staff',
 };
 
 export default function RootLayout({

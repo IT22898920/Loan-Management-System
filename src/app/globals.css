@@ -69,3 +69,14 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
+
+/* Browser autofill paints its own background/text, which turned the login
+   username field white-on-white (QA 86eydextd). Force readable colors. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px hsl(var(--background)) inset;
+  -webkit-text-fill-color: hsl(var(--foreground));
+  caret-color: hsl(var(--foreground));
+  transition: background-color 5000s ease-in-out 0s;
+}
