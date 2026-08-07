@@ -358,13 +358,26 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
                           </Link>
                         </Button>
                       ) : (
-                        <span className={`shrink-0 text-xs font-bold px-3 py-1.5 rounded-full ${
-                          paid.is_not_paid ? 'bg-red-100 text-red-600' :
-                          paid.shortfall > 0 ? 'bg-amber-100 text-amber-700' :
-                          'bg-green-100 text-green-700'
-                        }`}>
-                          {paid.is_not_paid ? 'N/P' : 'Done'}
-                        </span>
+                        <div className="shrink-0 flex flex-col items-end gap-1.5">
+                          <span className={`text-xs font-bold px-3 py-1.5 rounded-full ${
+                            paid.is_not_paid ? 'bg-red-100 text-red-600' :
+                            paid.shortfall > 0 ? 'bg-amber-100 text-amber-700' :
+                            'bg-green-100 text-green-700'
+                          }`}>
+                            {paid.is_not_paid ? 'N/P' : 'Done'}
+                          </span>
+                          {/* Collection is done but the loan still carries a
+                              balance — offer the same-visit full settlement
+                              path (QA 86eya8z76: no way back after weekly). */}
+                          {loan.loan_balance > 0 && (
+                            <Link
+                              href={`/staff/payment/new?loanId=${loan.id}&memberId=${member?.id}&principal=${loan.principal ?? 0}&weekly=${loan.weekly_payment}&balance=${loan.loan_balance}&settle=1`}
+                              className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-lg transition-colors"
+                            >
+                              Settle balance
+                            </Link>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>

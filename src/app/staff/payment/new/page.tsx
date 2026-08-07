@@ -58,6 +58,17 @@ function PaymentForm() {
     if (isSettlement) setAmount(remainingBalance.toString());
   }, [isSettlement, remainingBalance]);
 
+  // ?settle=1 (from the center page's "Settle" shortcut on already-collected
+  // members) arms settlement mode once the live balance confirms there is
+  // still something to settle.
+  const wantsAutoSettle = searchParams.get('settle') === '1';
+  useEffect(() => {
+    if (wantsAutoSettle && liveBalance !== null && liveBalance > 0) {
+      setIsNotPaid(false);
+      setIsSettlement(true);
+    }
+  }, [wantsAutoSettle, liveBalance]);
+
   // Member identity loaded from DB (prevents same-day cross-center misclicks
   // where the URL params might point at the wrong loan).
   const [memberInfo, setMemberInfo] = useState<{
