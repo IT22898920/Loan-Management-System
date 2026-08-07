@@ -4,6 +4,15 @@ import { formatCurrency, formatDate } from './utils';
 
 // ─── Daily Report (Staff) ─────────────────────────────────────────────────────
 
+export interface ReportMemberRow {
+  member_number: string;
+  full_name: string;
+  weekly: number;
+  paid: number;
+  shortfall: number;
+  is_not_paid: boolean;
+}
+
 export interface ReportCenter {
   center_name: string;
   center_number: number;
@@ -11,6 +20,8 @@ export interface ReportCenter {
   collection_amount: number;
   cleared_amount?: number;
   loan_issued: number;
+  /** Per-member payment breakdown — when present the PDF adds detail pages. */
+  members?: ReportMemberRow[];
 }
 
 export interface DailyReportData {
@@ -212,13 +223,74 @@ export function generateDailyReportPDF(data: DailyReportData): void {
   doc.setFillColor(200, 220, 255); doc.roundedRect(pbX, rY + 36, pbW, 4, 2, 2, 'F');
   doc.setFillColor(...GREEN); doc.roundedRect(pbX, rY + 36, pbW * Math.min(1, rate / 100), 4, 2, 2, 'F');
 
-  // ── Footer ───────────────────────────────────────────────────────────────────
-  doc.setFillColor(...BLUE);
-  doc.rect(0, 285, W, 12, 'F');
-  doc.setFontSize(7.5); doc.setFont('helvetica', 'normal');
-  doc.setTextColor(190, 210, 255);
-  doc.text('DIRIYALANKA Micro Finance — Confidential', 14, 292);
-  doc.text(`Page 1 of 1`, W - 14, 292, { align: 'right' });
+  // ── Member payment detail (per center) ───────────────────────────────────────
+  const centersWithMembers = data.centers.filter((c) => (c.members?.length ?? 0) > 0);
+  if (centersWithMembers.length > 0) {
+    doc.addPage();
+    let y = 16;
+    doc.setFillColor(...BLUE);
+    doc.rect(14, y, 4, 7, 'F');
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...DARK);
+    doc.text('Member Payments by Center', 21, y + 5.5);
+    y += 12;
+
+    for (const c of centersWithMembers) {
+      if (y > 255) { doc.addPage(); y = 16; }
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...BLUE);
+      doc.text(`${c.center_name}  (Center ${c.center_number})`, 14, y + 4);
+      const rows = (c.members ?? []).map((m) => [
+        m.member_number,
+        m.full_name,
+        formatCurrency(m.weekly),
+        m.is_not_paid ? '—' : formatCurrency(m.paid),
+        m.shortfall > 0 ? formatCurrency(m.shortfall) : '—',
+        m.is_not_paid ? 'N/P' : m.shortfall > 0 ? 'Partial' : 'Paid',
+      ]);
+      autoTable(doc, {
+        startY: y + 7,
+        head: [['Member No', 'Member Name', 'Weekly Due', 'Paid', 'Shortfall', 'Status']],
+        body: rows,
+        styles: { fontSize: 8.5, cellPadding: 3 },
+        headStyles: { fillColor: BLUE, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: {
+          0: { cellWidth: 28 },
+          1: { cellWidth: 62 },
+          2: { cellWidth: 26, halign: 'right' },
+          3: { cellWidth: 26, halign: 'right', fontStyle: 'bold' },
+          4: { cellWidth: 26, halign: 'right' },
+          5: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
+        },
+        margin: { left: 14, right: 14, bottom: 18 },
+        didParseCell: (h) => {
+          if (h.section !== 'body') return;
+          const status = rows[h.row.index]?.[5];
+          if (h.column.index === 5) {
+            if (status === 'N/P') h.cell.styles.textColor = [220, 38, 38];
+            else if (status === 'Partial') h.cell.styles.textColor = [217, 119, 6];
+            else h.cell.styles.textColor = GREEN;
+          }
+        },
+      });
+      y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+    }
+  }
+
+  // ── Footer (every page) ──────────────────────────────────────────────────────
+  const pageCount = doc.getNumberOfPages();
+  for (let p = 1; p <= pageCount; p++) {
+    doc.setPage(p);
+    doc.setFillColor(...BLUE);
+    doc.rect(0, 285, W, 12, 'F');
+    doc.setFontSize(7.5); doc.setFont('helvetica', 'normal');
+    doc.setTextColor(190, 210, 255);
+    doc.text('DIRIYALANKA Micro Finance — Confidential', 14, 292);
+    doc.text(`Page ${p} of ${pageCount}`, W - 14, 292, { align: 'right' });
+  }
 
   doc.save(`daily-report-${data.report_date}.pdf`);
 }

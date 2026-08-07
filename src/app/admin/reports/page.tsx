@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { FileText, CheckCircle2, Clock, Search, X, Download, Loader2, Filter, RefreshCw, Eye, Banknote } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
-import { generateDailyReportPDF, ReportCenter } from '@/lib/pdf-report';
+import { generateDailyReportPDF, ReportCenter, ReportMemberRow } from '@/lib/pdf-report';
 
 interface ReportRow {
   id: string;
@@ -89,7 +89,7 @@ export default function AdminReportsPage() {
       // Get all payments by this staff on this date, with loan + member + center info
       const { data: payments } = await supabase
         .from('payments')
-        .select('loan_id, amount_paid, is_not_paid, loan:loans!inner(id, weekly_payment, member:members!inner(center_id, center:centers(id, name, center_number)))')
+        .select('loan_id, amount_paid, is_not_paid, shortfall, loan:loans!inner(id, weekly_payment, member:members!inner(member_number, full_name, center_id, center:centers(id, name, center_number)))')
         .eq('staff_id', report.staff_id)
         .eq('payment_date', report.report_date);
 
@@ -100,17 +100,29 @@ export default function AdminReportsPage() {
         .eq('created_by', report.staff_id)
         .eq('issued_date', report.report_date);
 
-      // Build per-center map from payments
-      type CenterData = { id: string; name: string; center_number: number; collected: number; loan_issued: number };
+      // Build per-center map from payments (incl. per-member breakdown)
+      type CenterData = { id: string; name: string; center_number: number; collected: number; loan_issued: number; members: ReportMemberRow[] };
       const centerMap = new Map<string, CenterData>();
 
       for (const p of (payments ?? []) as unknown as {
-        loan_id: string; amount_paid: number; is_not_paid: boolean;
-        loan: { weekly_payment: number; member: { center_id: string; center: { id: string; name: string; center_number: number } } };
+        loan_id: string; amount_paid: number; is_not_paid: boolean; shortfall: number;
+        loan: { weekly_payment: number; member: { member_number: string; full_name: string; center_id: string; center: { id: string; name: string; center_number: number } } };
       }[]) {
         const c = p.loan.member.center;
-        if (!centerMap.has(c.id)) centerMap.set(c.id, { id: c.id, name: c.name, center_number: c.center_number, collected: 0, loan_issued: 0 });
-        if (!p.is_not_paid) centerMap.get(c.id)!.collected += p.amount_paid;
+        if (!centerMap.has(c.id)) centerMap.set(c.id, { id: c.id, name: c.name, center_number: c.center_number, collected: 0, loan_issued: 0, members: [] });
+        const cd = centerMap.get(c.id)!;
+        if (!p.is_not_paid) cd.collected += p.amount_paid;
+        cd.members.push({
+          member_number: p.loan.member.member_number,
+          full_name: p.loan.member.full_name,
+          weekly: p.loan.weekly_payment,
+          paid: p.is_not_paid ? 0 : p.amount_paid,
+          shortfall: p.shortfall ?? 0,
+          is_not_paid: p.is_not_paid,
+        });
+      }
+      for (const cd of centerMap.values()) {
+        cd.members.sort((a, b) => a.member_number.localeCompare(b.member_number));
       }
 
       for (const l of (issuedLoans ?? []) as unknown as { principal: number | null; member: { center_id: string } }[]) {
@@ -141,6 +153,7 @@ export default function AdminReportsPage() {
           expected_collection: expectedCollection,
           collection_amount: cd.collected,
           loan_issued: cd.loan_issued,
+          members: cd.members,
         });
       }
 
@@ -169,7 +182,7 @@ export default function AdminReportsPage() {
       const supabase = createClient();
       const { data: payments } = await supabase
         .from('payments')
-        .select('loan_id, amount_paid, is_not_paid, loan:loans!inner(id, weekly_payment, member:members!inner(center_id, center:centers(id, name, center_number)))')
+        .select('loan_id, amount_paid, is_not_paid, shortfall, loan:loans!inner(id, weekly_payment, member:members!inner(member_number, full_name, center_id, center:centers(id, name, center_number)))')
         .eq('staff_id', report.staff_id)
         .eq('payment_date', report.report_date);
 
@@ -187,16 +200,28 @@ export default function AdminReportsPage() {
       ]);
       setViewIssuedLoans((issuedLoansDetail ?? []) as unknown as typeof viewIssuedLoans);
 
-      type CenterData = { id: string; name: string; center_number: number; collected: number; loan_issued: number };
+      type CenterData = { id: string; name: string; center_number: number; collected: number; loan_issued: number; members: ReportMemberRow[] };
       const centerMap = new Map<string, CenterData>();
 
       for (const p of (payments ?? []) as unknown as {
-        amount_paid: number; is_not_paid: boolean;
-        loan: { weekly_payment: number; member: { center_id: string; center: { id: string; name: string; center_number: number } } };
+        amount_paid: number; is_not_paid: boolean; shortfall: number;
+        loan: { weekly_payment: number; member: { member_number: string; full_name: string; center_id: string; center: { id: string; name: string; center_number: number } } };
       }[]) {
         const c = p.loan.member.center;
-        if (!centerMap.has(c.id)) centerMap.set(c.id, { id: c.id, name: c.name, center_number: c.center_number, collected: 0, loan_issued: 0 });
-        if (!p.is_not_paid) centerMap.get(c.id)!.collected += p.amount_paid;
+        if (!centerMap.has(c.id)) centerMap.set(c.id, { id: c.id, name: c.name, center_number: c.center_number, collected: 0, loan_issued: 0, members: [] });
+        const cd = centerMap.get(c.id)!;
+        if (!p.is_not_paid) cd.collected += p.amount_paid;
+        cd.members.push({
+          member_number: p.loan.member.member_number,
+          full_name: p.loan.member.full_name,
+          weekly: p.loan.weekly_payment,
+          paid: p.is_not_paid ? 0 : p.amount_paid,
+          shortfall: p.shortfall ?? 0,
+          is_not_paid: p.is_not_paid,
+        });
+      }
+      for (const cd of centerMap.values()) {
+        cd.members.sort((a, b) => a.member_number.localeCompare(b.member_number));
       }
 
       for (const l of (issuedLoans ?? []) as unknown as { principal: number | null; member: { center_id: string } }[]) {
@@ -217,7 +242,7 @@ export default function AdminReportsPage() {
         const expectedCollection = (activeLoans ?? [])
           .filter((l: { issued_date: string }) => l.issued_date < weekStartStr)
           .reduce((s: number, l: { weekly_payment: number }) => s + l.weekly_payment, 0);
-        built.push({ center_name: cd.name, center_number: cd.center_number, expected_collection: expectedCollection, collection_amount: cd.collected, loan_issued: cd.loan_issued });
+        built.push({ center_name: cd.name, center_number: cd.center_number, expected_collection: expectedCollection, collection_amount: cd.collected, loan_issued: cd.loan_issued, members: cd.members });
       }
       setViewCenters(built);
     } finally {
@@ -444,6 +469,52 @@ export default function AdminReportsPage() {
                       </table>
                     </div>
                   </div>
+
+                  {/* Member payments per center */}
+                  {viewCenters.some((c) => (c.members?.length ?? 0) > 0) && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                        Member Payments by Center
+                      </p>
+                      <div className="space-y-3">
+                        {viewCenters.filter((c) => (c.members?.length ?? 0) > 0).map((c, i) => (
+                          <div key={i} className="rounded-xl border border-gray-100 overflow-hidden">
+                            <div className="bg-gray-50 px-4 py-2 border-b border-gray-100 flex items-center justify-between">
+                              <p className="text-xs font-semibold text-gray-700">
+                                {c.center_name} <span className="text-muted-foreground font-normal">· Center {c.center_number}</span>
+                              </p>
+                              <p className="text-[11px] text-muted-foreground">{c.members!.length} members</p>
+                            </div>
+                            <div className="overflow-x-auto">
+                              <table className="w-full min-w-[460px] text-sm">
+                                <tbody className="divide-y divide-gray-50">
+                                  {c.members!.map((m, j) => (
+                                    <tr key={j} className="hover:bg-gray-50/50">
+                                      <td className="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">{m.member_number}</td>
+                                      <td className="px-3 py-2 text-gray-800">{m.full_name}</td>
+                                      <td className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{formatCurrency(m.weekly)}</td>
+                                      <td className="px-3 py-2 text-right font-semibold whitespace-nowrap">
+                                        {m.is_not_paid ? '—' : formatCurrency(m.paid)}
+                                      </td>
+                                      <td className="px-4 py-2 text-right whitespace-nowrap">
+                                        {m.is_not_paid ? (
+                                          <span className="text-[11px] font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded-full">N/P</span>
+                                        ) : m.shortfall > 0 ? (
+                                          <span className="text-[11px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">-{formatCurrency(m.shortfall)}</span>
+                                        ) : (
+                                          <span className="text-[11px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Paid</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Loans Issued Breakdown */}
                   {viewIssuedLoans.length > 0 && (
