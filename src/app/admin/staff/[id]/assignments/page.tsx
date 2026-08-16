@@ -435,7 +435,14 @@ export default function StaffAssignmentsPage() {
                   <tr key={center.id} className="hover:bg-gray-50/30">
                     <td className="py-4 px-3">
                       <span className="text-xs text-muted-foreground mr-1.5">#{center.center_number}</span>
-                      <span className="font-semibold text-gray-800 text-sm">{center.name}</span>
+                      {/* Links to the center detail page listing its members */}
+                      <Link
+                        href={`/admin/centers/${center.id}`}
+                        title={`View ${center.name} members`}
+                        className="font-semibold text-gray-800 text-sm hover:text-primary hover:underline underline-offset-2 transition-colors"
+                      >
+                        {center.name}
+                      </Link>
                     </td>
                     {visibleDays.map(({ value }) => {
                       const key = cellKey(center.id, value);
