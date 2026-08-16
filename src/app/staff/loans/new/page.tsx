@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { toast } from 'sonner';
-import { Loader2, ArrowLeft, Search, PlusCircle, CheckCircle2, CreditCard, Building2, Calendar, BadgeCheck, History, Info } from 'lucide-react';
+import { Loader2, ArrowLeft, Search, PlusCircle, CheckCircle2, CreditCard, Building2, Calendar, BadgeCheck, History, Info, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { createClient } from '@/lib/supabase/client';
 import { createLoanAction } from '@/app/actions/loans';
 import { getActiveLoanPlansAction, type LoanPlan as LoanPlanRow } from '@/app/actions/loan-plans';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { loanRef } from '@/lib/loan-ref';
 
 interface FoundMember {
   id: string;
@@ -20,13 +21,14 @@ interface FoundMember {
   photo_url: string | null;
   created_at: string;
   center: { name: string; center_number: number } | null;
-  loans: { id: string; loan_plan: number | null; principal: number | null; loan_balance: number; weekly_payment: number; status: string; issued_date: string }[];
+  loans: { id: string; loan_plan: number | null; principal: number | null; loan_balance: number; weekly_payment: number; status: string; issued_date: string; cycle_no: number | null }[];
 }
 
 export default function NewLoanPage() {
   const router = useRouter();
   const [memberNumber, setMemberNumber] = useState('');
   const [member, setMember] = useState<FoundMember | null>(null);
+  const [matches, setMatches] = useState<FoundMember[]>([]);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const [principal, setPrincipal] = useState('');
@@ -55,37 +57,50 @@ export default function NewLoanPage() {
     };
   }, []);
 
-  async function searchMember() {
-    if (!memberNumber.trim()) return;
-    setSearching(true);
-    setMember(null);
+  async function selectMember(data: FoundMember) {
+    setMatches([]);
+    setMember(data);
     setPhotoUrl(null);
-    setPrincipal(''); setInterest(''); setWeekly('');
-    setSelectedPlanId(null);
-
-    const supabase = createClient();
-    const { data } = await supabase
-      .from('members')
-      .select(`id, full_name, member_number, photo_url, created_at, center:centers(name, center_number), loans(id, loan_plan, principal, loan_balance, weekly_payment, status, issued_date)`)
-      .eq('member_number', memberNumber.trim())
-      .limit(1)
-      .maybeSingle();
-
-    setSearching(false);
-
-    if (!data) {
-      toast.error('Member not found with that number.');
-      return;
-    }
-
-    setMember(data as unknown as FoundMember);
-
     if (data.photo_url) {
+      const supabase = createClient();
       const { data: signed } = await supabase.storage
         .from('member-photos')
         .createSignedUrl(data.photo_url, 3600);
       if (signed?.signedUrl) setPhotoUrl(signed.signedUrl);
     }
+  }
+
+  async function searchMember() {
+    if (!memberNumber.trim()) return;
+    setSearching(true);
+    setMember(null);
+    setMatches([]);
+    setPhotoUrl(null);
+    setPrincipal(''); setInterest(''); setWeekly('');
+    setSelectedPlanId(null);
+
+    // member_number is NOT unique (same number can exist in another center),
+    // so fetch all matches and let the staff member pick the right person
+    // instead of silently issuing against an arbitrary row.
+    const supabase = createClient();
+    const { data } = await supabase
+      .from('members')
+      .select(`id, full_name, member_number, photo_url, created_at, center:centers(name, center_number), loans(id, loan_plan, principal, loan_balance, weekly_payment, status, issued_date, cycle_no)`)
+      .eq('member_number', memberNumber.trim())
+      .limit(10);
+
+    setSearching(false);
+
+    const found = (data ?? []) as unknown as FoundMember[];
+    if (found.length === 0) {
+      toast.error('Member not found with that number.');
+      return;
+    }
+    if (found.length === 1) {
+      await selectMember(found[0]);
+      return;
+    }
+    setMatches(found);
   }
 
   const activeLoans = member?.loans?.filter((l) => l.status === 'active') ?? [];
@@ -156,7 +171,7 @@ export default function NewLoanPage() {
     setSaving(false);
 
     if (result?.error) { toast.error(result.error); return; }
-    toast.success('New loan created successfully!');
+    toast.success(result?.loanRef ? `New loan #${result.loanRef} created!` : 'New loan created successfully!');
     router.push('/staff/dashboard');
   }
 
@@ -196,6 +211,31 @@ export default function NewLoanPage() {
       </div>
 
       {/* Found Member Card */}
+      {/* Same number, different people (legacy books reuse numbers across
+          centers) — the staff member must pick the right person explicitly. */}
+      {matches.length > 1 && (
+        <div className="bg-white rounded-2xl shadow-sm border border-amber-200 p-4">
+          <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-2">
+            {matches.length} members share this number — pick the right one
+          </p>
+          <div className="space-y-2">
+            {matches.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => selectMember(m)}
+                className="w-full text-left rounded-xl border border-gray-200 hover:border-primary hover:bg-blue-50/50 px-4 py-3 transition-colors"
+              >
+                <p className="font-semibold text-gray-900 text-sm">{m.full_name}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {(m.center as { name?: string } | null)?.name ?? 'No center'} · #{m.member_number}
+                </p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {member && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-4">
           <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-green-100 px-5 py-4">
@@ -264,6 +304,7 @@ export default function NewLoanPage() {
                 <div className="space-y-2">
                   {activeLoans.map((l) => (
                     <div key={l.id} className="rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-xs px-3 py-2.5">
+                      <p className="font-bold text-blue-800 mb-1.5">#{loanRef(member.member_number, l.cycle_no)}</p>
                       <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
                         <div className="whitespace-nowrap">
                           <span className="text-blue-500">Principal:</span> <strong>{formatCurrency(l.principal ?? 0)}</strong>
@@ -285,8 +326,23 @@ export default function NewLoanPage() {
         </div>
       )}
 
+      {/* Client rule: one active loan per member — block issuing until the
+          current loan is fully settled. */}
+      {member && activeLoans.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-4 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-red-800 text-sm">Cannot issue a new loan</p>
+            <p className="text-xs text-red-700 mt-1 leading-relaxed">
+              {member.full_name} already has an active loan — see the card above.
+              The current loan must be fully settled before a new one can be issued.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Loan entry — custom amounts with quick presets */}
-      {member && (
+      {member && activeLoans.length === 0 && (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Loan Details</p>

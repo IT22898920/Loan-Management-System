@@ -2,10 +2,20 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import { getTodayString } from '@/lib/utils';
+import { formatCurrency, getTodayString } from '@/lib/utils';
+import { loanRef } from '@/lib/loan-ref';
 import { safeError } from '@/lib/safe-error';
 import { TODAY_DAY_OF_WEEK } from '@/types';
 import { z } from 'zod';
+
+/** Single source of truth for the one-active-loan rule wording. */
+function activeLoanError(memberNumber: string, detail?: { cycle_no: number | null; loan_balance: number }): string {
+  const ref = detail ? ` (#${loanRef(memberNumber, detail.cycle_no)}, ඉතුරු ${formatCurrency(detail.loan_balance)})` : '';
+  return (
+    `${memberNumber} දැනටමත් active ණයක් තියෙනවා${ref}. ` +
+    'අලුත් ණයක් දෙන්න කලින් ඒක සම්පූර්ණයෙන් settle කරන්න ඕන.'
+  );
+}
 
 // Pending credits from a historical balance fix. Hardcoded by member_number
 // because there are only two known cases. After both are consumed, delete
@@ -77,6 +87,20 @@ export async function createLoanAction(formData: FormData) {
     }
   }
 
+  // Client rule: one active loan per member — a new loan needs the previous
+  // one completed first. Friendly pre-check here; record_loan re-checks
+  // atomically under a member row lock (raises ACTIVE_LOAN_EXISTS on a race).
+  const { data: activeLoan } = await supabase
+    .from('loans')
+    .select('id, cycle_no, loan_balance')
+    .eq('member_id', member.id)
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle();
+  if (activeLoan) {
+    return { error: activeLoanError(member.member_number, activeLoan) };
+  }
+
   // Apply pending credits (historical balance fix). Net against principal so
   // the smaller loan reflects the credit owed.
   let principal = parsed.data.principal;
@@ -90,10 +114,10 @@ export async function createLoanAction(formData: FormData) {
     });
   }
 
-  // cycle_no allocation happens INSIDE the SECURITY DEFINER RPC so it can see
-  // all loans (RLS hides completed loans from staff, which previously caused
-  // cycle_no to collide on the 2nd loan for a returning member).
-  const { data: loanId, error } = await supabase.rpc('record_loan', {
+  // cycle_no allocation + authorization + the one-active-loan rule all live
+  // INSIDE the SECURITY DEFINER RPC (migration 029) so a direct RPC call can't
+  // bypass them and the check is atomic under the member row lock.
+  const { data: rpcResult, error } = await supabase.rpc('record_loan', {
     p_member_id: member.id,
     p_principal: principal,
     p_interest: parsed.data.interest,
@@ -104,6 +128,17 @@ export async function createLoanAction(formData: FormData) {
   });
 
   if (error) {
+    // Structured SQLSTATEs from migration 029; message text kept as fallback
+    // for the window where the old RPC is still deployed.
+    if (error.code === 'P0301' || error.message?.includes('ACTIVE_LOAN_EXISTS')) {
+      return { error: activeLoanError(member.member_number) };
+    }
+    if (error.code === 'P0302' || error.message?.includes('UNAUTHORIZED')) {
+      return { error: 'Unauthorized' };
+    }
+    if (error.code === 'P0303' || error.message?.includes('MEMBER_NOT_FOUND')) {
+      return { error: 'Member not found.' };
+    }
     console.error('[loans.createLoanAction] record_loan failed', {
       userId: user.id,
       memberId: member.id,
@@ -112,9 +147,32 @@ export async function createLoanAction(formData: FormData) {
     return { error: safeError(error, 'Could not create loan. Please try again.') };
   }
 
+  // Migration-029 RPC returns jsonb {loan_id, cycle_no}; the pre-029 one
+  // returned a bare uuid. Never guess the letter: if the cycle is unknown,
+  // fetch it via the admin client (RLS-independent — the user-scoped client
+  // can lose visibility across the Asia/Colombo day boundary).
+  let loanId: string;
+  let cycleNo: number | null = null;
+  if (rpcResult && typeof rpcResult === 'object' && 'loan_id' in (rpcResult as object)) {
+    const shaped = rpcResult as { loan_id: string; cycle_no: number };
+    loanId = shaped.loan_id;
+    cycleNo = shaped.cycle_no;
+  } else {
+    loanId = rpcResult as string;
+    const { createAdminClient } = await import('@/lib/supabase/server');
+    const admin = await createAdminClient();
+    const { data: createdLoan } = await admin
+      .from('loans')
+      .select('cycle_no')
+      .eq('id', loanId)
+      .maybeSingle();
+    cycleNo = createdLoan?.cycle_no ?? null;
+  }
+  const newLoanRef = cycleNo != null ? loanRef(member.member_number, cycleNo) : undefined;
+
   revalidatePath('/staff/dashboard');
   revalidatePath('/staff/members/' + member.id);
   revalidatePath('/admin/members');
   revalidatePath('/admin/dashboard');
-  return { success: true, loanId };
+  return { success: true, loanId, loanRef: newLoanRef };
 }
