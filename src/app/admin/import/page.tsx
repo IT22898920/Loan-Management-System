@@ -112,7 +112,7 @@ export default function ImportPage() {
         // re-run updates in place instead of inserting a duplicate loan).
         const { data: existingLoan, error: lLookErr } = await supabase
           .from('loans')
-          .select('id')
+          .select('id, status')
           .eq('member_id', member!.id)
           .eq('issued_date', row.issued_date)
           .order('cycle_no')
@@ -121,7 +121,10 @@ export default function ImportPage() {
         if (lLookErr) throw new Error(`Loan lookup failed for ${row.member_number}: ${lLookErr.message}`);
 
         if (existingLoan) {
-          // Update all key fields on existing loan (fixes wrong dates/weekly_payment from previous import)
+          // Update all key fields on existing loan (fixes wrong dates/weekly_payment
+          // from previous import). Never resurrect a completed loan back to
+          // active — that would silently violate the one-active-loan rule.
+          const derivedStatus = row.loan_balance <= 0 ? 'completed' : 'active';
           await supabase.from('loans').update({
             issued_date: row.issued_date,
             loan_balance: row.loan_balance,
@@ -129,9 +132,19 @@ export default function ImportPage() {
             interest: Math.max(0, row.loan_balance - row.loan_type),
             original_balance: row.loan_balance,
             weekly_payment: weeklyMap[row.loan_type] ?? 0,
-            status: row.loan_balance <= 0 ? 'completed' : 'active',
+            status: existingLoan.status === 'completed' ? 'completed' : derivedStatus,
           }).eq('id', existingLoan.id);
         } else {
+          // Allocate the next cycle so the lettered loan ref (DLG0005B) stays
+          // unique — NULL-cycle rows would all collapse to the same ref.
+          const { data: cycleRows } = await supabase
+            .from('loans')
+            .select('cycle_no')
+            .eq('member_id', member!.id);
+          const existingCount = cycleRows?.length ?? 0;
+          const maxCycle = Math.max(0, ...(cycleRows ?? []).map((l) => l.cycle_no ?? 0));
+          const nextCycle = Math.max(existingCount, maxCycle) + 1;
+
           await supabase.from('loans').insert({
             member_id: member!.id,
             loan_plan: row.loan_type,
@@ -142,7 +155,8 @@ export default function ImportPage() {
             weekly_payment: weeklyMap[row.loan_type] ?? 0,
             issued_date: row.issued_date,
             status: row.loan_balance <= 0 ? 'completed' : 'active',
-            is_first_loan: false,
+            cycle_no: nextCycle,
+            is_first_loan: existingCount === 0,
             source: 'import-xlsx',
             created_by: user.id,
           });

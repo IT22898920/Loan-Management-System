@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, MapPin, CheckCircle2, AlertTriangle, CreditCard, Building2, Hash } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { loanRef } from '@/lib/loan-ref';
 
 export default async function MemberDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -99,12 +100,12 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                 </div>
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 font-bold">
+                      #{loanRef(member.member_number, loan.cycle_no)}
+                    </span>
                     <h3 className="font-semibold text-gray-900">Rs. {(loan.principal ?? loan.original_balance ?? loan.loan_balance).toLocaleString()} Loan</h3>
                     {loan.is_first_loan && (
                       <span className="text-xs px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 font-medium">First Loan</span>
-                    )}
-                    {loan.cycle_no && loan.cycle_no > 1 && (
-                      <span className="text-xs px-2 py-0.5 rounded-lg bg-blue-50 text-blue-700 font-medium">Cycle {loan.cycle_no}</span>
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">

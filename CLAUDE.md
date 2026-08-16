@@ -64,11 +64,27 @@ Both functions must stay in sync with the DB's `now() at time zone 'Asia/Colombo
 
 ### RLS Policies
 
-Defined in `supabase/migrations/002_rls_policies.sql`. Key constraints:
-- Staff can only see centers assigned to them **for the current day** (based on `Asia/Colombo` timezone)
-- Staff can only see members who have **active loans** in their today-assigned centers
+Originally defined in `supabase/migrations/002_rls_policies.sql`, **but the live
+databases have drifted from that file** (verified Aug 2026 — staging was aligned
+to production's simpler policies to fix an infinite-recursion bug). Live state:
+- Staff members-SELECT is **center-scoped only** (assigned centers, any day, no
+  active-loan clause) — staff CAN find settled members, which the loan-renewal
+  flow depends on
 - Staff can only see **active** loans (not completed ones) — completed-today loans require adminClient to fetch
 - Loan updates require admin role — hence `createAdminClient()` in payment action
+- Check `pg_policies` on the live DB before trusting the 002 file
+
+### Loan Rules (client requirements, Aug 2026)
+
+- **One active loan per member.** Enforced inside the `record_loan` RPC
+  (migration 029: SECURITY DEFINER with authorization, member row lock,
+  structured SQLSTATEs P0301/P0302/P0303) plus a friendly pre-check in
+  `createLoanAction`. The in-app Excel importer refuses to resurrect completed
+  loans. Two legacy members hold >1 active loan (grandfathered until settled).
+- **Loan refs are lettered:** `loanRef()` in [src/lib/loan-ref.ts](src/lib/loan-ref.ts)
+  renders member number + Excel-style cycle letter (`DLG0005A` = 1st loan,
+  `B` = 2nd…). cycle_no is allocated NULL-aware in `record_loan` and by the
+  importer; a NULL cycle renders unlettered (never fabricate a letter).
 
 ### PDF Reports
 

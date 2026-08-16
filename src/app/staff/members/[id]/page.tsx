@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { createClient } from '@/lib/supabase/server';
 import { ArrowLeft, AlertTriangle, CheckCircle2, MinusCircle, CreditCard, Clock, Camera } from 'lucide-react';
 import { formatCurrency, formatDate, getTodayString } from '@/lib/utils';
+import { loanRef } from '@/lib/loan-ref';
 import MemberPhotoUpload from '@/components/MemberPhotoUpload';
 
 export default async function StaffMemberProfilePage({ params }: { params: Promise<{ id: string }> }) {
@@ -14,7 +15,7 @@ export default async function StaffMemberProfilePage({ params }: { params: Promi
 
   const { data: member } = await supabase
     .from('members')
-    .select(`*, center:centers(name, center_number), loans(id, loan_plan, principal, loan_balance, weekly_payment, status, issued_date)`)
+    .select(`*, center:centers(name, center_number), loans(id, loan_plan, principal, loan_balance, weekly_payment, status, issued_date, cycle_no)`)
     .eq('id', id)
     .single();
 
@@ -139,12 +140,17 @@ export default async function StaffMemberProfilePage({ params }: { params: Promi
           </div>
         )}
         <div className="divide-y divide-gray-50">
-          {activeLoans.map((loan: { id: string; loan_plan: number | null; principal: number | null; loan_balance: number; weekly_payment: number; issued_date: string }) => (
+          {activeLoans.map((loan: { id: string; loan_plan: number | null; principal: number | null; loan_balance: number; weekly_payment: number; issued_date: string; cycle_no: number | null }) => (
             <div key={loan.id} className="px-5 py-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">
-                  Rs. {(loan.principal ?? loan.loan_balance).toLocaleString()} Loan
-                </span>
+              <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-indigo-100 text-indigo-700">
+                    #{loanRef(member.member_number, loan.cycle_no)}
+                  </span>
+                  <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">
+                    Rs. {(loan.principal ?? loan.loan_balance).toLocaleString()} Loan
+                  </span>
+                </div>
                 <span className="text-xs text-muted-foreground">Since {formatDate(loan.issued_date)}</span>
               </div>
               <div className="grid grid-cols-2 gap-4">

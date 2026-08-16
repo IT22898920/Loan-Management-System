@@ -11,6 +11,7 @@
  */
 import * as XLSX from 'xlsx';
 import { createClient } from '@/lib/supabase/client';
+import { loanRef } from '@/lib/loan-ref';
 
 export interface FyOption {
   label: string;   // e.g. "FY2023-24"
@@ -290,7 +291,7 @@ export async function generateAuditReport(
       const tot = loanTotal(l);
       const paid = Math.min(cumPaid[l.id] ?? 0, tot);
       return [
-        i + 1, `${l.member_no}/C${l.cycle_no ?? 1}`, l.member_no, l.client, l.center,
+        i + 1, loanRef(l.member_no, l.cycle_no), l.member_no, l.client, l.center,
         `${l.is_first_loan ? 'NEW' : 'RE'}-${Math.round((l.principal ?? 0) / 1000)}K`,
         fmtD(l.issued_date), round2(l.principal ?? 0), round2(l.interest ?? 0), round2(tot),
         round2(l.weekly_payment ?? 0), l.cycle_no ?? 1,
@@ -329,7 +330,7 @@ export async function generateAuditReport(
     const int = splitInterest(amt, l);
     collCap += amt - int;
     collAoa.push([
-      i + 1, fmtD(p.d), `${l.member_no}/C${l.cycle_no ?? 1}`, l.member_no, l.client, l.center,
+      i + 1, fmtD(p.d), loanRef(l.member_no, l.cycle_no), l.member_no, l.client, l.center,
       round2(amt), round2(amt - int), round2(int),
       round2(l.principal ?? 0), round2(l.interest ?? 0), round2(loanTotal(l)),
       p.np ? 'N/P' : '', round2(p.sf ?? 0),
@@ -362,7 +363,7 @@ export async function generateAuditReport(
     const oc = (l.principal ?? 0) - colCap;
     const oi = (l.interest ?? 0) - (paid - colCap);
     outAoa.push([
-      i + 1, `${l.member_no}/C${l.cycle_no ?? 1}`, l.member_no, l.client, l.center,
+      i + 1, loanRef(l.member_no, l.cycle_no), l.member_no, l.client, l.center,
       fmtD(l.issued_date), round2(l.principal ?? 0), round2(l.interest ?? 0), round2(tot),
       round2(paid), round2(colCap), round2(paid - colCap),
       round2(oc), round2(oi), round2(oc + oi),
@@ -389,6 +390,7 @@ export async function generateAuditReport(
     ['5. OUTSTANDING lists every loan issued on or before FY end not fully collected by FY end, including loans from earlier years.'],
     [`6. COVERAGE: loans issued in FY: ${totals.loansIssued.toLocaleString()}; collection rows: ${totals.collectionRows.toLocaleString()}; open positions at FY end: ${totals.openPositions.toLocaleString()}.`],
     ['7. Figures are computed values. The reference offline workbooks prepared for the audit team (Jul 2026) contain the same figures with live formulas.'],
+    ['8. LOAN REF: member number + cycle letter (A = 1st loan, B = 2nd, C = 3rd, ...). Example: DLG0005B is the second loan of member DLG0005.'],
   ];
   const wsNotes = XLSX.utils.aoa_to_sheet(notesAoa);
   wsNotes['!cols'] = [{ wch: 120 }];
