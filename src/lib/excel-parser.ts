@@ -106,17 +106,29 @@ export function parseExcelFile(file: File): Promise<ExcelRow[]> {
   });
 }
 
+function tokenize(s: string): string[] {
+  return s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
 function findCol(headers: string[], candidates: string[]): number {
-  // Whole-token match (split on non-alphanumeric so 'Center No' tokens to
-  // ['center','no'] and won't match the candidate 'member number'). Previously
-  // substring matching let 'Phone No' / 'Center No' steal the member_number slot.
-  return headers.findIndex((h) => {
-    const tokens = h.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-    return candidates.some((c) => {
-      const cTokens = c.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-      return cTokens.every((t) => tokens.includes(t));
-    });
-  });
+  // Candidates are tried IN ORDER (most specific first) across all headers —
+  // previously a single headers.findIndex over ANY candidate let the bare
+  // 'name' fallback bind member_name to the earlier 'Center Name' column,
+  // importing center letters as member names (QA 86eyr0fba).
+  // Multi-token candidates match as a token subset; single generic tokens
+  // ('name', 'date'...) require an EXACT header match so they can never
+  // steal a more specific column.
+  const headerTokens = headers.map(tokenize);
+  for (const c of candidates) {
+    const cTokens = tokenize(c);
+    const idx = headerTokens.findIndex((tokens) =>
+      cTokens.length === 1
+        ? tokens.length === 1 && tokens[0] === cTokens[0]
+        : cTokens.every((t) => tokens.includes(t))
+    );
+    if (idx !== -1) return idx;
+  }
+  return -1;
 }
 
 function parseLoanType(raw: unknown): 5000 | 10000 | 20000 | null {
