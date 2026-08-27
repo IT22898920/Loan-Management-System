@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { Loader2, ArrowLeft, Check, CalendarDays, Info, UserCheck, Filter, Users, X } from 'lucide-react';
@@ -38,6 +38,7 @@ const STAFF_COLORS = [
 
 export default function StaffAssignmentsPage() {
   const params = useParams();
+  const router = useRouter();
   const staffId = params.id as string;
 
   const [centers, setCenters] = useState<Center[]>([]);
@@ -224,8 +225,9 @@ export default function StaffAssignmentsPage() {
     setSaving(false);
     if (result?.error) { toast.error(result.error); return; }
     toast.success('Assignments saved!');
-    // Refresh the page data
-    window.location.reload();
+    // Return to the staff list after a successful save (QA 86eyrcagg).
+    router.push('/admin/staff');
+    router.refresh();
   }
 
   const takingCount = taking.size;
