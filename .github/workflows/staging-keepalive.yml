@@ -1,0 +1,56 @@
+# Keeps the free-tier staging Supabase project awake (it auto-pauses on
+# inactivity, which breaks QA logins with a misleading "Invalid email or
+# password"). Pings the DB every 6 hours; if the project has paused anyway,
+# restores it via the Management API when the SUPABASE_STAGING_PAT secret
+# is configured.
+#
+# NOTE: GitHub disables schedules after ~60 days without repo activity —
+# this repo commits regularly, so that should never trigger.
+
+name: staging-keepalive
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping staging database (activity)
+        run: |
+          # Publishable anon key — already public in the client bundle by design.
+          CODE=$(curl -s -o /tmp/body -w "%{http_code}" --max-time 30 \
+            -H "apikey: sb_publishable_zSp342V8wBP-1k63lIB7UQ_irFYJs-D" \
+            "https://mwlchwzahreskfeufvez.supabase.co/rest/v1/centers?select=id&limit=1")
+          echo "REST ping HTTP $CODE"
+          # 200/206 = alive (RLS may return empty for anon — the query still ran).
+          # Anything else = project likely paused; fall through to restore step.
+          if [ "$CODE" = "200" ] || [ "$CODE" = "206" ]; then
+            echo "alive=true" >> "$GITHUB_ENV"
+          else
+            cat /tmp/body || true
+            echo "alive=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Restore if paused (needs SUPABASE_STAGING_PAT secret)
+        if: env.alive == 'false'
+        env:
+          PAT: ${{ secrets.SUPABASE_STAGING_PAT }}
+        run: |
+          if [ -z "$PAT" ]; then
+            echo "::error::Staging appears paused and SUPABASE_STAGING_PAT is not set — restore manually or add the secret."
+            exit 1
+          fi
+          STATUS=$(curl -s --max-time 30 -H "Authorization: Bearer $PAT" \
+            "https://api.supabase.com/v1/projects/mwlchwzahreskfeufvez" | \
+            python3 -c "import json,sys;print(json.load(sys.stdin).get('status',''))")
+          echo "project status: $STATUS"
+          if [ "$STATUS" = "INACTIVE" ]; then
+            curl -s --max-time 60 -X POST -H "Authorization: Bearer $PAT" \
+              "https://api.supabase.com/v1/projects/mwlchwzahreskfeufvez/restore" \
+              -w "restore HTTP %{http_code}\n" -o /dev/null
+            echo "Restore triggered — staging will be back in a few minutes."
+          fi
