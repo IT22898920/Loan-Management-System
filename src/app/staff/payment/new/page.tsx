@@ -272,7 +272,18 @@ function PaymentForm() {
               <Input
                 type="number"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  // Clamp AS TYPED — an amount above the remaining balance can
+                  // never be entered (the RPC re-checks server-side anyway).
+                  const raw = e.target.value;
+                  const n = parseFloat(raw);
+                  if (remainingBalance > 0 && !Number.isNaN(n) && n > remainingBalance) {
+                    setAmount(remainingBalance.toString());
+                    toast.error(`උපරිම ගෙවිය හැක්කේ ${formatCurrency(remainingBalance)} — ඉතුරු ණය ශේෂය.`);
+                    return;
+                  }
+                  setAmount(raw);
+                }}
                 min="1"
                 max={remainingBalance.toString()}
                 step="0.01"
