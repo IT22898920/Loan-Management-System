@@ -237,11 +237,20 @@ export function generateDailyReportPDF(data: DailyReportData): void {
     y += 12;
 
     for (const c of centersWithMembers) {
-      if (y > 255) { doc.addPage(); y = 16; }
+      if (y > 250) { doc.addPage(); y = 16; }
       doc.setFontSize(10);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(...BLUE);
       doc.text(`${c.center_name}  (Center ${c.center_number})`, 14, y + 4);
+      // Per-center summary line mirroring the Collection Summary row.
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...GRAY);
+      doc.text(
+        `Expected ${formatCurrency(c.expected_collection)}   ·   Collected ${formatCurrency(c.collection_amount)}   ·   Loan Issued ${c.loan_issued > 0 ? formatCurrency(c.loan_issued) : '—'}`,
+        14, y + 9,
+      );
+      y += 5;
       const rows = (c.members ?? []).map((m) => [
         m.member_number,
         m.full_name,
