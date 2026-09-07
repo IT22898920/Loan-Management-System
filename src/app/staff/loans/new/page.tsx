@@ -108,6 +108,10 @@ export default function NewLoanPage() {
   const isFirstLoan = (member?.loans?.length ?? 0) === 0;
 
   const principalNum = parseFloat(principal) || 0;
+  // Client rule: one active loan PER CATEGORY (same principal amount).
+  const sameCategoryActive = member
+    ? (member.loans ?? []).find((l) => l.status === 'active' && Number(l.principal ?? 0) === principalNum)
+    : undefined;
   const interestNum = parseFloat(interest) || 0;
   const weeklyNum = parseFloat(weekly) || 0;
   const totalBalance = principalNum + interestNum;
@@ -326,23 +330,10 @@ export default function NewLoanPage() {
         </div>
       )}
 
-      {/* Client rule: one active loan per member — block issuing until the
-          current loan is fully settled. */}
-      {member && activeLoans.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-4 flex items-start gap-3">
-          <AlertTriangle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold text-red-800 text-sm">Cannot issue a new loan</p>
-            <p className="text-xs text-red-700 mt-1 leading-relaxed">
-              {member.full_name} already has an active loan — see the card above.
-              The current loan must be fully settled before a new one can be issued.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Loan entry — custom amounts with quick presets */}
-      {member && activeLoans.length === 0 && (
+      {/* Loan entry — custom amounts with quick presets. Multiple active
+          loans of DIFFERENT amounts are allowed; only a same-category
+          (same-principal) second loan is blocked (rule change, Sep 2026). */}
+      {member && (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Loan Details</p>
@@ -449,8 +440,25 @@ export default function NewLoanPage() {
             )}
           </div>
 
+          {sameCategoryActive && (
+            <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-4 flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-red-800 text-sm">
+                  Same-category active loan exists
+                </p>
+                <p className="text-xs text-red-700 mt-1 leading-relaxed">
+                  {member.full_name} already has an active {formatCurrency(principalNum)} loan
+                  (#{loanRef(member.member_number, sameCategoryActive.cycle_no)} ·
+                  balance {formatCurrency(sameCategoryActive.loan_balance)}).
+                  Settle it first, or issue a loan of a different amount.
+                </p>
+              </div>
+            </div>
+          )}
+
           <Button type="submit" className="w-full rounded-2xl h-14 text-base font-semibold" size="lg"
-            disabled={saving || principalNum <= 0 || weeklyNum <= 0}>
+            disabled={saving || principalNum <= 0 || weeklyNum <= 0 || !!sameCategoryActive}>
             {saving ? (
               <><Loader2 className="h-5 w-5 animate-spin mr-2" />Creating Loan...</>
             ) : (
