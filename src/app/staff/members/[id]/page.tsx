@@ -52,12 +52,13 @@ export default async function StaffMemberProfilePage({ params }: { params: Promi
   // Transferred-member badge data (latest transfer, if any).
   const { data: lastTransfer } = await supabase
     .from('member_transfers')
-    .select('transferred_at, from_center:centers!member_transfers_from_center_id_fkey(name, center_number)')
+    // Stored name, not a centers join — staff RLS hides other centers, which
+    // nulled the embed for exactly the transfers staff need to see.
+    .select('transferred_at, from_center_name')
     .eq('member_id', id)
     .order('transferred_at', { ascending: false })
     .limit(1)
     .maybeSingle();
-  const transferFromCenter = (lastTransfer?.from_center ?? null) as { name: string; center_number: number } | null;
 
   const totalLoanBalance = activeLoans.reduce((s: number, l: { loan_balance: number }) => s + l.loan_balance, 0);
   const completedCount = (member.loans ?? []).filter((l: { status: string }) => l.status === 'completed').length;
@@ -93,7 +94,7 @@ export default async function StaffMemberProfilePage({ params }: { params: Promi
             {center && <p className="text-blue-200 text-xs">{center.name} · Center #{center.center_number}</p>}
             {lastTransfer && (
               <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-400/20 border border-amber-300/40 text-amber-100 text-[11px] font-medium px-2.5 py-0.5">
-                Transferred · previously {transferFromCenter ? transferFromCenter.name : 'another center'} · {formatDate(lastTransfer.transferred_at)}
+                Transferred · previously {lastTransfer.from_center_name ?? 'another center'} · {formatDate(lastTransfer.transferred_at)}
               </p>
             )}
           </div>

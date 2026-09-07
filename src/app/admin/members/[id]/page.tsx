@@ -32,14 +32,16 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
   const [{ data: lastTransfer }, { data: allCenters }] = await Promise.all([
     supabase
       .from('member_transfers')
-      .select('transferred_at, from_center:centers!member_transfers_from_center_id_fkey(name, center_number)')
+      // from_center_name is stored at transfer time — RLS-independent and
+      // historically accurate (a joined centers embed nulls out under RLS).
+      .select('transferred_at, from_center_name')
       .eq('member_id', id)
       .order('transferred_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
     supabase.from('centers').select('id, name, center_number').order('center_number'),
   ]);
-  const fromCenter = (lastTransfer?.from_center ?? null) as { name: string; center_number: number } | null;
+  const fromCenterName = lastTransfer?.from_center_name ?? null;
   const loans = (member.loans ?? []) as Array<{
     id: string; loan_plan: number | null; principal: number | null; interest: number | null;
     original_balance: number | null; cycle_no: number | null;
@@ -79,7 +81,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
             {lastTransfer && (
               <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-amber-400/20 border border-amber-300/40 text-amber-100 text-xs font-medium px-3 py-1">
                 <MapPin className="h-3 w-3" />
-                Transferred member · previously {fromCenter ? `${fromCenter.name} (#${fromCenter.center_number})` : 'another center'} · {formatDate(lastTransfer.transferred_at)}
+                Transferred member · previously {fromCenterName ?? 'another center'} · {formatDate(lastTransfer.transferred_at)}
               </div>
             )}
           </div>
