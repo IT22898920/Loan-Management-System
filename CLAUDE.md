@@ -76,11 +76,15 @@ to production's simpler policies to fix an infinite-recursion bug). Live state:
 
 ### Loan Rules (client requirements, Aug 2026)
 
-- **One active loan per member.** Enforced inside the `record_loan` RPC
-  (migration 029: SECURITY DEFINER with authorization, member row lock,
-  structured SQLSTATEs P0301/P0302/P0303) plus a friendly pre-check in
-  `createLoanAction`. The in-app Excel importer refuses to resurrect completed
-  loans. Two legacy members hold >1 active loan (grandfathered until settled).
+- **One active loan per CATEGORY per member** (rule changed Sep 2026,
+  migration 032; category = principal amount). A member may hold several
+  active loans of different amounts (20,000 + 10,000 + 30,000) but never two
+  active loans of the same principal. Enforced inside the `record_loan` RPC
+  (SECURITY DEFINER with authorization, member row lock, structured SQLSTATEs
+  P0301/P0302/P0303) plus a category-scoped pre-check in `createLoanAction`
+  and a live warning in the staff new-loan form. The in-app Excel importer
+  refuses to resurrect completed loans. Member transfers still require ALL
+  loans settled (migration 030 — unchanged by the category rule).
 - **Loan refs are lettered:** `loanRef()` in [src/lib/loan-ref.ts](src/lib/loan-ref.ts)
   renders member number + Excel-style cycle letter (`DLG0005A` = 1st loan,
   `B` = 2nd…). cycle_no is allocated NULL-aware in `record_loan` and by the

@@ -8,12 +8,16 @@ import { safeError } from '@/lib/safe-error';
 import { TODAY_DAY_OF_WEEK } from '@/types';
 import { z } from 'zod';
 
-/** Single source of truth for the one-active-loan rule wording. */
-function activeLoanError(memberNumber: string, detail?: { cycle_no: number | null; loan_balance: number }): string {
+/** Single source of truth for the one-active-loan-per-category rule wording. */
+function activeLoanError(
+  memberNumber: string,
+  principal: number,
+  detail?: { cycle_no: number | null; loan_balance: number }
+): string {
   const ref = detail ? ` (#${loanRef(memberNumber, detail.cycle_no)}, ඉතුරු ${formatCurrency(detail.loan_balance)})` : '';
   return (
-    `${memberNumber} දැනටමත් active ණයක් තියෙනවා${ref}. ` +
-    'අලුත් ණයක් දෙන්න කලින් ඒක සම්පූර්ණයෙන් settle කරන්න ඕන.'
+    `${memberNumber} ට ${formatCurrency(principal)} category එකෙන් දැනටමත් active ණයක් තියෙනවා${ref}. ` +
+    'ඒ ණය settle කරලා නැත්නම් වෙනත් category එකක (වෙනස් මුදලක) ණයක් දෙන්න පුළුවන්.'
   );
 }
 
@@ -87,22 +91,9 @@ export async function createLoanAction(formData: FormData) {
     }
   }
 
-  // Client rule: one active loan per member — a new loan needs the previous
-  // one completed first. Friendly pre-check here; record_loan re-checks
-  // atomically under a member row lock (raises ACTIVE_LOAN_EXISTS on a race).
-  const { data: activeLoan } = await supabase
-    .from('loans')
-    .select('id, cycle_no, loan_balance')
-    .eq('member_id', member.id)
-    .eq('status', 'active')
-    .limit(1)
-    .maybeSingle();
-  if (activeLoan) {
-    return { error: activeLoanError(member.member_number, activeLoan) };
-  }
-
   // Apply pending credits (historical balance fix). Net against principal so
-  // the smaller loan reflects the credit owed.
+  // the smaller loan reflects the credit owed. Done BEFORE the category check
+  // so the rule compares the amount that will actually be stored.
   let principal = parsed.data.principal;
   const credit = PENDING_CREDITS_LKR[member.member_number];
   if (credit) {
@@ -112,6 +103,22 @@ export async function createLoanAction(formData: FormData) {
       creditLkr: credit,
       adjustedPrincipal: principal,
     });
+  }
+
+  // Client rule (Sep 2026): one active loan PER CATEGORY — a member may hold
+  // several active loans of different amounts, but not two of the same
+  // principal. Friendly pre-check here; record_loan re-checks atomically
+  // under the member row lock (raises ACTIVE_LOAN_EXISTS on a race).
+  const { data: sameCategoryLoan } = await supabase
+    .from('loans')
+    .select('id, cycle_no, loan_balance')
+    .eq('member_id', member.id)
+    .eq('status', 'active')
+    .eq('principal', principal)
+    .limit(1)
+    .maybeSingle();
+  if (sameCategoryLoan) {
+    return { error: activeLoanError(member.member_number, principal, sameCategoryLoan) };
   }
 
   // cycle_no allocation + authorization + the one-active-loan rule all live
@@ -131,7 +138,7 @@ export async function createLoanAction(formData: FormData) {
     // Structured SQLSTATEs from migration 029; message text kept as fallback
     // for the window where the old RPC is still deployed.
     if (error.code === 'P0301' || error.message?.includes('ACTIVE_LOAN_EXISTS')) {
-      return { error: activeLoanError(member.member_number) };
+      return { error: activeLoanError(member.member_number, principal) };
     }
     if (error.code === 'P0302' || error.message?.includes('UNAUTHORIZED')) {
       return { error: 'Unauthorized' };
