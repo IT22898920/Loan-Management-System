@@ -49,6 +49,16 @@ export default async function StaffMemberProfilePage({ params }: { params: Promi
   const center = member.center as { name: string; center_number: number } | null;
   const today = getTodayString();
 
+  // Transferred-member badge data (latest transfer, if any).
+  const { data: lastTransfer } = await supabase
+    .from('member_transfers')
+    .select('transferred_at, from_center:centers!member_transfers_from_center_id_fkey(name, center_number)')
+    .eq('member_id', id)
+    .order('transferred_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const transferFromCenter = (lastTransfer?.from_center ?? null) as { name: string; center_number: number } | null;
+
   const totalLoanBalance = activeLoans.reduce((s: number, l: { loan_balance: number }) => s + l.loan_balance, 0);
   const completedCount = (member.loans ?? []).filter((l: { status: string }) => l.status === 'completed').length;
 
@@ -81,6 +91,11 @@ export default async function StaffMemberProfilePage({ params }: { params: Promi
             <h1 className="text-xl font-bold leading-tight">{member.full_name}</h1>
             <p className="text-blue-200 text-sm">#{member.member_number}</p>
             {center && <p className="text-blue-200 text-xs">{center.name} · Center #{center.center_number}</p>}
+            {lastTransfer && (
+              <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-400/20 border border-amber-300/40 text-amber-100 text-[11px] font-medium px-2.5 py-0.5">
+                Transferred · previously {transferFromCenter ? transferFromCenter.name : 'another center'} · {formatDate(lastTransfer.transferred_at)}
+              </p>
+            )}
           </div>
         </div>
 

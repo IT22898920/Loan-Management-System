@@ -117,6 +117,53 @@ export async function createMemberAction(formData: FormData) {
   return { success: true, memberId: data.id };
 }
 
+/**
+ * Transfer a member to another center (admin only). The transfer_member RPC
+ * (migration 030) enforces atomically, under a member row lock: admin role,
+ * no active loan (client rule — settle first), target center exists and
+ * differs, and no duplicate (number, name) pair in the target center.
+ */
+export async function transferMemberAction(memberId: string, toCenterId: string) {
+  const auth = await requireAdmin();
+  if (!auth.ok) return { error: auth.error };
+  const supabase = await createClient();
+
+  const parsed = z.object({
+    memberId: z.string().uuid(),
+    toCenterId: z.string().uuid(),
+  }).safeParse({ memberId, toCenterId });
+  if (!parsed.success) return { error: 'Invalid transfer request.' };
+
+  const { error } = await supabase.rpc('transfer_member', {
+    p_member_id: parsed.data.memberId,
+    p_to_center_id: parsed.data.toCenterId,
+  });
+
+  if (error) {
+    if (error.code === 'P0304' || error.message?.includes('ACTIVE_LOAN_BLOCKS_TRANSFER')) {
+      return { error: 'Member ට active ණයක් තියෙනවා — transfer කරන්න කලින් ණය සම්පූර්ණයෙන් settle වෙන්න ඕන.' };
+    }
+    if (error.code === 'P0305' || error.message?.includes('DUPLICATE_IN_TARGET')) {
+      return { error: 'Target center එකේ දැනටමත් මේ number + name එකෙන්ම member කෙනෙක් ඉන්නවා.' };
+    }
+    if (error.code === 'P0307' || error.message?.includes('SAME_CENTER')) {
+      return { error: 'Member දැනටමත් ඒ center එකේමයි.' };
+    }
+    if (error.code === 'P0303' || error.message?.includes('NOT_FOUND')) {
+      return { error: 'Member or center not found.' };
+    }
+    if (error.code === 'P0302' || error.message?.includes('UNAUTHORIZED')) {
+      return { error: 'Unauthorized' };
+    }
+    return { error: safeError(error, 'Transfer failed. Please try again.') };
+  }
+
+  revalidatePath('/admin/members');
+  revalidatePath(`/admin/members/${parsed.data.memberId}`);
+  revalidatePath('/admin/centers');
+  return { success: true };
+}
+
 export async function updateMemberAction(id: string, formData: FormData) {
   const auth = await requireAdmin();
   if (!auth.ok) return { error: auth.error };
