@@ -55,16 +55,25 @@ export default async function StaffDashboardPage() {
   const { data: centerLoansWithPayment } = centerIds.length > 0
     ? await supabase
         .from('loans')
-        .select('id, weekly_payment, member:members!inner(center_id)')
+        .select('id, weekly_payment, loan_balance, member:members!inner(center_id)')
         .eq('status', 'active')
         .in('members.center_id', centerIds)
     : { data: null };
 
+  // A loan's daily due caps at its remaining balance (balance-before-today =
+  // current balance + whatever was already paid on it today) — a 500-balance
+  // loan on a 1,000 weekly owes only 500.
+  const paidTodayByLoan = new Map<string, number>();
+  for (const p of todayPayments ?? []) {
+    if (!p.is_not_paid) paidTodayByLoan.set(p.loan_id, (paidTodayByLoan.get(p.loan_id) ?? 0) + p.amount_paid);
+  }
+
   const expectedByCenterId: Record<string, number> = {};
-  for (const loan of (centerLoansWithPayment ?? []) as unknown as { id: string; weekly_payment: number; member: { center_id: string } }[]) {
+  for (const loan of (centerLoansWithPayment ?? []) as unknown as { id: string; weekly_payment: number; loan_balance: number; member: { center_id: string } }[]) {
     const cid = loan.member.center_id;
     loanCenterMap.set(loan.id, cid); // ensure map covers active loans too
-    expectedByCenterId[cid] = (expectedByCenterId[cid] ?? 0) + loan.weekly_payment;
+    const balanceBefore = Number(loan.loan_balance) + (paidTodayByLoan.get(loan.id) ?? 0);
+    expectedByCenterId[cid] = (expectedByCenterId[cid] ?? 0) + Math.min(loan.weekly_payment, Math.max(0, balanceBefore));
   }
 
   const centerStats = centers.map((center) => {

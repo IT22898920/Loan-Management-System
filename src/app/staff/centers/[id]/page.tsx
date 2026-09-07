@@ -190,10 +190,21 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
   const clearedCount = clearedPayments.filter((p) => !p.is_not_paid).length;
   const totalCollected = regularCollected + clearedAmount; // cash-in-hand for this center
 
-  // Expected stays as ACTIVE loans issued before this week (unchanged semantics)
+  // A loan near its end owes only the remaining balance, not the full weekly
+  // (e.g. balance 500 on a 1,000 weekly ⇒ due 500). Balance-before-today is
+  // reconstructed from current balance + today's payments on that loan.
+  const paidTodayByLoan = new Map<string, number>();
+  for (const p of centerPayments) {
+    if (!p.is_not_paid) paidTodayByLoan.set(p.loan_id, (paidTodayByLoan.get(p.loan_id) ?? 0) + p.amount_paid);
+  }
+  const effectiveDue = (l: { id: string; weekly_payment: number; loan_balance: number }) =>
+    Math.min(l.weekly_payment, Math.max(0, Number(l.loan_balance) + (paidTodayByLoan.get(l.id) ?? 0)));
+
+  // Expected stays as ACTIVE loans issued before this week — but capped at
+  // each loan's remaining balance so the target is actually collectable.
   const totalExpected = (loans ?? [])
     .filter((l) => (l as unknown as { issued_date: string }).issued_date < weekStartString)
-    .reduce((s, l) => s + (l as unknown as { weekly_payment: number }).weekly_payment, 0);
+    .reduce((s, l) => s + effectiveDue(l as unknown as { id: string; weekly_payment: number; loan_balance: number }), 0);
 
   const progressPct = totalExpected > 0
     ? Math.min(100, Math.round((regularCollected / totalExpected) * 100))
@@ -309,7 +320,7 @@ export default async function CenterDetailPage({ params }: { params: Promise<{ i
                         </div>
                         <div className="flex items-center gap-3 text-xs text-gray-500 mt-0.5">
                           <span>L/B: <span className="font-semibold text-gray-800">{formatCurrency(loan.loan_balance)}</span></span>
-                          <span>Due: <span className="font-semibold text-gray-800">{formatCurrency(loan.weekly_payment)}</span></span>
+                          <span>Due: <span className="font-semibold text-gray-800">{formatCurrency(effectiveDue(loan))}</span></span>
                         </div>
 
                         {loan.prevAlert && (loan.prevAlert.np || loan.prevAlert.shortfall) && (

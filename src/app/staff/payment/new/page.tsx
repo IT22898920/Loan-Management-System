@@ -51,6 +51,18 @@ function PaymentForm() {
   }, [loanId]);
 
   const remainingBalance = liveBalance ?? balance;
+  // The collectable due caps at the remaining balance (last-week loans owe
+  // only what's left, e.g. 500 on a 1,000 weekly).
+  const effectiveDue = remainingBalance > 0 ? Math.min(weekly, remainingBalance) : weekly;
+
+  // If the default amount (full weekly) exceeds what's actually owed, snap it
+  // down once the live balance arrives.
+  useEffect(() => {
+    if (liveBalance !== null && liveBalance > 0 && weekly > liveBalance) {
+      setAmount((prev) => (parseFloat(prev) === weekly ? liveBalance.toString() : prev));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveBalance]);
 
   // Settlement locks the amount to the remaining balance (also re-syncs if the
   // live balance arrives after the toggle was switched on).
@@ -295,10 +307,10 @@ function PaymentForm() {
             <div className="flex gap-3 mt-3">
               <button
                 type="button"
-                onClick={() => { setIsSettlement(false); setAmount(weekly.toString()); }}
+                onClick={() => { setIsSettlement(false); setAmount(effectiveDue.toString()); }}
                 className="flex-1 min-h-[44px] text-sm font-medium text-primary bg-primary/10 py-3 rounded-xl hover:bg-primary/20 transition-colors"
               >
-                Weekly ({formatCurrency(weekly)})
+                Weekly ({formatCurrency(effectiveDue)})
               </button>
             </div>
           </div>

@@ -135,7 +135,7 @@ export default function AdminReportsPage() {
       for (const cd of centerMap.values()) {
         const { data: activeLoans } = await supabase
           .from('loans')
-          .select('weekly_payment, issued_date, member:members!inner(center_id)')
+          .select('id, weekly_payment, loan_balance, issued_date, member:members!inner(center_id)')
           .eq('members.center_id', cd.id)
           .lte('issued_date', report.report_date)
           .eq('status', 'active');
@@ -143,9 +143,17 @@ export default function AdminReportsPage() {
         // Expected = active loans issued before the current collection week
         const weekStartStr = weekStartMonday(report.report_date);
 
+        // Cap each loan's due at its balance-before-that-day (current balance
+        // + that day's payments) — a 500-balance loan on a 1,000 weekly owes
+        // only 500. Exact for today's report; approximate for historical ones.
+        const paidThatDay = new Map<string, number>();
+        for (const pp of (payments ?? []) as unknown as { loan_id: string; amount_paid: number; is_not_paid: boolean }[]) {
+          if (!pp.is_not_paid) paidThatDay.set(pp.loan_id, (paidThatDay.get(pp.loan_id) ?? 0) + pp.amount_paid);
+        }
         const expectedCollection = (activeLoans ?? [])
           .filter((l: { issued_date: string }) => l.issued_date < weekStartStr)
-          .reduce((s: number, l: { weekly_payment: number }) => s + l.weekly_payment, 0);
+          .reduce((s: number, l: { id: string; weekly_payment: number; loan_balance: number }) =>
+            s + Math.min(l.weekly_payment, Math.max(0, Number(l.loan_balance) + (paidThatDay.get(l.id) ?? 0))), 0);
 
         centers.push({
           center_name: cd.name,
@@ -235,13 +243,21 @@ export default function AdminReportsPage() {
       for (const cd of centerMap.values()) {
         const { data: activeLoans } = await supabase
           .from('loans')
-          .select('weekly_payment, issued_date, member:members!inner(center_id)')
+          .select('id, weekly_payment, loan_balance, issued_date, member:members!inner(center_id)')
           .eq('members.center_id', cd.id)
           .lte('issued_date', report.report_date)
           .eq('status', 'active');
+        // Cap each loan's due at its balance-before-that-day (current balance
+        // + that day's payments) — a 500-balance loan on a 1,000 weekly owes
+        // only 500. Exact for today's report; approximate for historical ones.
+        const paidThatDay = new Map<string, number>();
+        for (const pp of (payments ?? []) as unknown as { loan_id: string; amount_paid: number; is_not_paid: boolean }[]) {
+          if (!pp.is_not_paid) paidThatDay.set(pp.loan_id, (paidThatDay.get(pp.loan_id) ?? 0) + pp.amount_paid);
+        }
         const expectedCollection = (activeLoans ?? [])
           .filter((l: { issued_date: string }) => l.issued_date < weekStartStr)
-          .reduce((s: number, l: { weekly_payment: number }) => s + l.weekly_payment, 0);
+          .reduce((s: number, l: { id: string; weekly_payment: number; loan_balance: number }) =>
+            s + Math.min(l.weekly_payment, Math.max(0, Number(l.loan_balance) + (paidThatDay.get(l.id) ?? 0))), 0);
         built.push({ center_name: cd.name, center_number: cd.center_number, expected_collection: expectedCollection, collection_amount: cd.collected, loan_issued: cd.loan_issued, members: cd.members });
       }
       setViewCenters(built);
