@@ -479,11 +479,26 @@ export default function AdminReportsPage() {
                       <div className="space-y-3">
                         {viewCenters.filter((c) => (c.members?.length ?? 0) > 0).map((c, i) => (
                           <div key={i} className="rounded-xl border border-gray-100 overflow-hidden">
-                            <div className="bg-gray-50 px-4 py-2 border-b border-gray-100 flex items-center justify-between">
-                              <p className="text-xs font-semibold text-gray-700">
-                                {c.center_name} <span className="text-muted-foreground font-normal">· Center {c.center_number}</span>
-                              </p>
-                              <p className="text-[11px] text-muted-foreground">{c.members!.length} members</p>
+                            <div className="bg-gray-50 px-4 py-2 border-b border-gray-100">
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs font-semibold text-gray-700">
+                                  {c.center_name} <span className="text-muted-foreground font-normal">· Center {c.center_number}</span>
+                                </p>
+                                <p className="text-[11px] text-muted-foreground">{c.members!.length} members</p>
+                              </div>
+                              {/* Per-center summary inline so the admin can
+                                  cross-check without scrolling back up. */}
+                              <div className="flex items-center gap-4 mt-1 text-[11px] tabular-nums">
+                                <span className="text-muted-foreground">
+                                  Expected <strong className="text-gray-700">{formatCurrency(c.expected_collection)}</strong>
+                                </span>
+                                <span className="text-muted-foreground">
+                                  Collected <strong className={c.collection_amount >= c.expected_collection ? 'text-green-700' : 'text-amber-700'}>{formatCurrency(c.collection_amount)}</strong>
+                                </span>
+                                <span className="text-muted-foreground">
+                                  Loan <strong className="text-blue-700">{c.loan_issued > 0 ? formatCurrency(c.loan_issued) : '—'}</strong>
+                                </span>
+                              </div>
                             </div>
                             <div className="overflow-x-auto">
                               <table className="w-full min-w-[460px] text-sm">
