@@ -470,6 +470,27 @@ export default function AdminReportsPage() {
                     </div>
                   </div>
 
+                  {/* Cash flow — client wants this ABOVE the member detail so
+                      the money position reads before the per-member rows. */}
+                  <div className="bg-gray-50 rounded-xl p-4 space-y-2.5">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Cash Flow</p>
+                    {(() => {
+                      const totalCollected = viewCenters.reduce((s,c)=>s+c.collection_amount,0);
+                      const balance = viewingReport.cash_issued + totalCollected - viewingReport.loan_issued;
+                      return (
+                        <>
+                          <div className="flex justify-between text-sm"><span className="text-gray-500">Cash Issued (Starting)</span><span className="font-medium text-green-700">+ {formatCurrency(viewingReport.cash_issued)}</span></div>
+                          <div className="flex justify-between text-sm"><span className="text-gray-500">Loan Repayments</span><span className="font-medium text-green-700">+ {formatCurrency(totalCollected)}</span></div>
+                          <div className="flex justify-between text-sm"><span className="text-gray-500">Loan Issued</span><span className="font-medium text-red-600">− {formatCurrency(viewingReport.loan_issued)}</span></div>
+                          <div className="flex justify-between pt-2 border-t border-gray-200">
+                            <span className="font-bold text-gray-900">Total Cash Balance</span>
+                            <span className={`font-black text-lg ${balance >= 0 ? 'text-green-700' : 'text-red-600'}`}>{formatCurrency(balance)}</span>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+
                   {/* Member payments per center */}
                   {viewCenters.some((c) => (c.members?.length ?? 0) > 0) && (
                     <div>
@@ -577,26 +598,6 @@ export default function AdminReportsPage() {
                       </div>
                     </div>
                   )}
-
-                  {/* Cash flow */}
-                  <div className="bg-gray-50 rounded-xl p-4 space-y-2.5">
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Cash Flow</p>
-                    {(() => {
-                      const totalCollected = viewCenters.reduce((s,c)=>s+c.collection_amount,0);
-                      const balance = viewingReport.cash_issued + totalCollected - viewingReport.loan_issued;
-                      return (
-                        <>
-                          <div className="flex justify-between text-sm"><span className="text-gray-500">Cash Issued (Starting)</span><span className="font-medium text-green-700">+ {formatCurrency(viewingReport.cash_issued)}</span></div>
-                          <div className="flex justify-between text-sm"><span className="text-gray-500">Loan Repayments</span><span className="font-medium text-green-700">+ {formatCurrency(totalCollected)}</span></div>
-                          <div className="flex justify-between text-sm"><span className="text-gray-500">Loan Issued</span><span className="font-medium text-red-600">− {formatCurrency(viewingReport.loan_issued)}</span></div>
-                          <div className="flex justify-between pt-2 border-t border-gray-200">
-                            <span className="font-bold text-gray-900">Total Cash Balance</span>
-                            <span className={`font-black text-lg ${balance >= 0 ? 'text-green-700' : 'text-red-600'}`}>{formatCurrency(balance)}</span>
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
 
                   {/* Download button */}
                   <button
