@@ -54,8 +54,12 @@ export default function TransferMemberButton({
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => !saving && setOpen(false)}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          {/* text-gray-900 resets color inheritance — the trigger button lives
+              inside the blue header's text-white scope, and this modal is
+              DOM-nested there, so unstyled text (SelectValue, outline Button)
+              was rendering white-on-white. */}
           <div
-            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6"
+            className="relative bg-white text-gray-900 rounded-2xl shadow-2xl w-full max-w-md p-6"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
