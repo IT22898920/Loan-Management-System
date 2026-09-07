@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, MapPin, CheckCircle2, AlertTriangle, CreditCard, Building2, Hash } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { loanRef } from '@/lib/loan-ref';
+import TransferMemberButton from '@/components/admin/TransferMemberButton';
 
 export default async function MemberDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -26,6 +27,19 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
   }
 
   const center = member.center as { name: string; center_number: number } | null;
+
+  // Latest transfer (if any) + centers list for the transfer dialog.
+  const [{ data: lastTransfer }, { data: allCenters }] = await Promise.all([
+    supabase
+      .from('member_transfers')
+      .select('transferred_at, from_center:centers!member_transfers_from_center_id_fkey(name, center_number)')
+      .eq('member_id', id)
+      .order('transferred_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase.from('centers').select('id, name, center_number').order('center_number'),
+  ]);
+  const fromCenter = (lastTransfer?.from_center ?? null) as { name: string; center_number: number } | null;
   const loans = (member.loans ?? []) as Array<{
     id: string; loan_plan: number | null; principal: number | null; interest: number | null;
     original_balance: number | null; cycle_no: number | null;
@@ -56,12 +70,28 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
               {member.full_name.charAt(0).toUpperCase()}
             </div>
           )}
-          <div>
+          <div className="min-w-0 flex-1">
             <h1 className="text-2xl md:text-3xl font-bold">{member.full_name}</h1>
-            <div className="flex items-center gap-3 mt-1 text-blue-200 text-sm">
+            <div className="flex items-center gap-3 mt-1 text-blue-200 text-sm flex-wrap">
               <span className="flex items-center gap-1"><Hash className="h-3.5 w-3.5" />{member.member_number}</span>
               {center && <span className="flex items-center gap-1"><Building2 className="h-3.5 w-3.5" />{center.name}</span>}
             </div>
+            {lastTransfer && (
+              <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-amber-400/20 border border-amber-300/40 text-amber-100 text-xs font-medium px-3 py-1">
+                <MapPin className="h-3 w-3" />
+                Transferred member · previously {fromCenter ? `${fromCenter.name} (#${fromCenter.center_number})` : 'another center'} · {formatDate(lastTransfer.transferred_at)}
+              </div>
+            )}
+          </div>
+          <div className="shrink-0 self-start">
+            <TransferMemberButton
+              memberId={member.id}
+              memberName={member.full_name}
+              currentCenterId={member.center_id ?? null}
+              currentCenterName={center?.name ?? null}
+              activeLoanCount={activeLoans.length}
+              centers={(allCenters ?? []) as { id: string; name: string; center_number: number }[]}
+            />
           </div>
         </div>
 
