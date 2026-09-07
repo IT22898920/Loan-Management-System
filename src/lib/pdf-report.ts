@@ -147,7 +147,14 @@ export function generateDailyReportPDF(data: DailyReportData): void {
   const afterTable = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
 
   // ── Cash Flow section ─────────────────────────────────────────────────────────
-  const cfY = afterTable + 10;
+  // The section is ~75mm tall. An admin report can carry 30+ centers, pushing
+  // the summary table deep into the page — without this guard the whole Cash
+  // Flow block rendered past the footer, i.e. invisibly off-page.
+  let cfY = afterTable + 10;
+  if (cfY + 75 > 280) {
+    doc.addPage();
+    cfY = 16;
+  }
   doc.setFillColor(...BLUE);
   doc.rect(14, cfY, 4, 7, 'F');
   doc.setFontSize(11);
