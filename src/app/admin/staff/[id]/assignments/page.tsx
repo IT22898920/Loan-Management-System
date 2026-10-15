@@ -46,7 +46,9 @@ export default function StaffAssignmentsPage() {
   const [selected, setSelected] = useState<Assignment[]>([]);
   // Map of "centerId_day" -> OccupiedBy (by OTHER staff)
   const [occupied, setOccupied] = useState<Map<string, OccupiedBy>>(new Map());
-  // Cells being taken from other staff (pending reassignment)
+  // Centers being moved here from another staff member (applied on save).
+  // A center belongs to ONE staff member, so taking it removes ALL of the
+  // previous staff member's days for that center.
   const [taking, setTaking] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -70,7 +72,8 @@ export default function StaffAssignmentsPage() {
       setStaffName(profile?.full_name ?? '');
       const loadedCenters = centersData ?? [];
       setCenters(loadedCenters);
-      setSelected((existing ?? []).map((a) => ({ centerId: a.center_id, day: a.day_of_week as DayOfWeek })));
+      const mine = (existing ?? []).map((a) => ({ centerId: a.center_id, day: a.day_of_week as DayOfWeek }));
+      setSelected(mine);
 
       // Fetch ALL OTHER staff assignments for these centers
       const centerIds = loadedCenters.map((c) => c.id);
@@ -99,6 +102,10 @@ export default function StaffAssignmentsPage() {
           });
         }
         setOccupied(newOccupied);
+        // Legacy data where this staff shares a center with someone else:
+        // saving keeps the center here, so show it as a pending move.
+        const othersCenters = new Set((allOthers ?? []).map((a) => a.center_id));
+        setTaking(new Set(mine.map((m) => m.centerId).filter((c) => othersCenters.has(c))));
       }
 
       setLoading(false);
@@ -112,45 +119,44 @@ export default function StaffAssignmentsPage() {
     return selected.some((s) => s.centerId === centerId && s.day === day);
   }
 
-  // Compute per-staff statistics (current staff + all others)
-  const staffStats = useMemo<StaffStat[]>(() => {
-    const stats = new Map<string, StaffStat>();
-
-    // Current (self) staff
-    const selfPerDay: Record<DayOfWeek, number> = { monday: 0, tuesday: 0, wednesday: 0, thursday: 0 };
-    for (const s of selected) selfPerDay[s.day]++;
-    stats.set(staffId, {
-      staffId,
-      staffName: staffName || 'Self',
-      color: 'bg-primary',
-      totalCenters: selected.length,
-      perDay: selfPerDay,
-    });
-
-    // Other staff (from occupied map)
-    for (const [, occ] of occupied) {
-      const existing = stats.get(occ.staffId);
-      if (existing) {
-        existing.totalCenters++;
-      } else {
-        stats.set(occ.staffId, {
-          staffId: occ.staffId,
-          staffName: occ.staffName,
-          color: occ.color,
-          totalCenters: 1,
-          perDay: { monday: 0, tuesday: 0, wednesday: 0, thursday: 0 },
-        });
-      }
-    }
-    // Per-day counts for others
+  // The OTHER staff member who holds each center (any day) + their days.
+  const centerOwners = useMemo(() => {
+    const owners = new Map<string, OccupiedBy & { days: DayOfWeek[] }>();
     for (const [key, occ] of occupied) {
-      const day = key.split('_')[1] as DayOfWeek;
-      const s = stats.get(occ.staffId);
-      if (s) s.perDay[day]++;
+      const [centerId, day] = key.split('_') as [string, DayOfWeek];
+      const o = owners.get(centerId);
+      if (o) o.days.push(day);
+      else owners.set(centerId, { ...occ, days: [day] });
+    }
+    return owners;
+  }, [occupied]);
+
+  // Per-staff statistics as they WILL be after saving (centers being moved
+  // here are already counted for this staff member, not the old one).
+  const staffStats = useMemo<StaffStat[]>(() => {
+    const stats = new Map<string, StaffStat & { centerSet: Set<string> }>();
+    const blank = (): Record<DayOfWeek, number> => ({ monday: 0, tuesday: 0, wednesday: 0, thursday: 0 });
+
+    const self = { staffId, staffName: staffName || 'Staff', color: 'bg-primary', totalCenters: 0, perDay: blank(), centerSet: new Set<string>() };
+    for (const s of selected) { self.perDay[s.day]++; self.centerSet.add(s.centerId); }
+    stats.set(staffId, self);
+
+    for (const [key, occ] of occupied) {
+      const [centerId, day] = key.split('_') as [string, DayOfWeek];
+      if (taking.has(centerId)) continue; // moving to this staff member on save
+      let s = stats.get(occ.staffId);
+      if (!s) {
+        s = { staffId: occ.staffId, staffName: occ.staffName, color: occ.color, totalCenters: 0, perDay: blank(), centerSet: new Set<string>() };
+        stats.set(occ.staffId, s);
+      }
+      s.perDay[day]++;
+      s.centerSet.add(centerId);
     }
 
-    return Array.from(stats.values()).sort((a, b) => b.totalCenters - a.totalCenters);
-  }, [selected, occupied, staffId, staffName]);
+    return Array.from(stats.values())
+      .map(({ centerSet, ...s }) => ({ ...s, totalCenters: centerSet.size }))
+      .sort((a, b) => b.totalCenters - a.totalCenters);
+  }, [selected, occupied, taking, staffId, staffName]);
 
   function toggleDay(day: DayOfWeek) {
     setDayFilter((prev) => {
@@ -196,35 +202,34 @@ export default function StaffAssignmentsPage() {
   }, [centers, staffFilter, staffId, occupied, selected, visibleDays]);
 
   function toggle(centerId: string, day: DayOfWeek) {
-    const key = cellKey(centerId, day);
-    const isMine = isSelected(centerId, day);
-    const isTaking = taking.has(key);
-    const occupant = occupied.get(key);
-
-    if (isMine) {
-      // Deselect own
-      setSelected((prev) => prev.filter((s) => !(s.centerId === centerId && s.day === day)));
-      setTaking((prev) => { const n = new Set(prev); n.delete(key); return n; });
-    } else if (occupant && !isTaking) {
-      // Click on occupied cell → mark as "taking" (will be reassigned on save)
-      setSelected((prev) => [...prev, { centerId, day }]);
-      setTaking((prev) => new Set(prev).add(key));
-    } else if (occupant && isTaking) {
-      // Click again to cancel taking
-      setSelected((prev) => prev.filter((s) => !(s.centerId === centerId && s.day === day)));
-      setTaking((prev) => { const n = new Set(prev); n.delete(key); return n; });
-    } else {
-      // Empty cell → assign
-      setSelected((prev) => [...prev, { centerId, day }]);
+    if (isSelected(centerId, day)) {
+      // Unassign this day. If it was the last day of a center being moved
+      // here, the move is cancelled and the center stays with its owner.
+      const next = selected.filter((s) => !(s.centerId === centerId && s.day === day));
+      setSelected(next);
+      if (!next.some((s) => s.centerId === centerId)) {
+        setTaking((prev) => { const n = new Set(prev); n.delete(centerId); return n; });
+      }
+      return;
     }
+    // Assign. A center held by another staff member (on ANY day) moves here.
+    setSelected((prev) => [...prev, { centerId, day }]);
+    if (centerOwners.has(centerId)) setTaking((prev) => new Set(prev).add(centerId));
   }
 
   async function handleSave() {
     setSaving(true);
     const result = await updateStaffAssignmentsAction(staffId, selected);
     setSaving(false);
-    if (result?.error) { toast.error(result.error); return; }
-    toast.success('Assignments saved!');
+    if ('error' in result) { toast.error(result.error); return; }
+    const moved = result.moved;
+    toast.success(
+      moved.length === 0
+        ? 'Assignments saved!'
+        : moved.length === 1
+          ? `Saved. ${moved[0].center_name} moved from ${moved[0].from_staff_name ?? 'another staff member'} to ${staffName}.`
+          : `Saved. ${moved.length} centers moved to ${staffName} from other staff.`,
+    );
     // Return to the staff list after a successful save (QA 86eyrcagg).
     router.push('/admin/staff');
     router.refresh();
@@ -263,7 +268,7 @@ export default function StaffAssignmentsPage() {
           </div>
           {takingCount > 0 && (
             <div className="bg-orange-500/30 backdrop-blur-sm rounded-xl px-4 py-2.5 border border-orange-300/30">
-              <span className="text-orange-200 text-xs">Reassigning: </span>
+              <span className="text-orange-200 text-xs">Centers moving here: </span>
               <span className="font-bold text-orange-200">{takingCount}</span>
             </div>
           )}
@@ -282,13 +287,17 @@ export default function StaffAssignmentsPage() {
             </div>
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-xl bg-orange-400 flex items-center justify-center text-white text-[10px] font-bold">S</div>
-              <span>Assigned to another staff (click to reassign here)</span>
+              <span>Collection day of another staff member&apos;s center</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-xl bg-gray-50 border border-dashed border-gray-300 flex items-center justify-center text-gray-300 text-[10px] font-bold">S</div>
+              <span>Center belongs to another staff member (click to move it here)</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-xl bg-primary/20 border-2 border-primary border-dashed flex items-center justify-center">
                 <Check className="h-3.5 w-3.5 text-primary" />
               </div>
-              <span>Will be reassigned from other staff on save</span>
+              <span>Moving here from another staff member on save</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-xl bg-gray-100" />
@@ -297,7 +306,10 @@ export default function StaffAssignmentsPage() {
           </div>
           <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100">
             <Info className="h-3.5 w-3.5 text-blue-500 shrink-0" />
-            <p className="text-xs text-blue-600 font-medium">Each center can have only 1 staff member per day. Assigning here will automatically remove the existing staff from that slot.</p>
+            <p className="text-xs text-blue-600 font-medium">
+              A center belongs to only 1 staff member. Assigning a center here moves it from its current staff member —
+              all of their days for that center are removed when you save.
+            </p>
           </div>
         </div>
 
@@ -439,8 +451,13 @@ export default function StaffAssignmentsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {visibleCenters.map((center) => (
-                  <tr key={center.id} className="hover:bg-gray-50/30">
+                {visibleCenters.map((center) => {
+                  // Another staff member who holds this center (on any day),
+                  // and whether it is being moved to this staff member.
+                  const owner = centerOwners.get(center.id);
+                  const moving = taking.has(center.id);
+                  return (
+                  <tr key={center.id} className={`hover:bg-gray-50/30 ${moving ? 'bg-orange-50/40' : ''}`}>
                     <td className="py-4 px-3">
                       <span className="text-xs text-muted-foreground mr-1.5">#{center.center_number}</span>
                       {/* Links to the center detail page listing its members */}
@@ -451,60 +468,75 @@ export default function StaffAssignmentsPage() {
                       >
                         {center.name}
                       </Link>
+                      {owner && (
+                        <p className={`text-[10px] mt-0.5 ${moving ? 'text-orange-600 font-medium' : 'text-gray-400'}`}>
+                          {moving ? (
+                            <><span className="line-through">{owner.staffName}</span> → {staffName}</>
+                          ) : (
+                            <>Staff: {owner.staffName}</>
+                          )}
+                        </p>
+                      )}
                     </td>
-                    {visibleDays.map(({ value }) => {
-                      const key = cellKey(center.id, value);
-                      const isMine = isSelected(center.id, value);
-                      const isTaking = taking.has(key);
-                      const occupant = occupied.get(key);
+                    {visibleDays.map(({ value, label }) => {
+                      const day = value as DayOfWeek;
+                      const dayName = label.split('(')[0].trim();
+                      const isMine = isSelected(center.id, day);
+                      // the other staff member's collection day for this center
+                      const occupant = occupied.get(cellKey(center.id, day));
+                      // center belongs to someone else, but not on this day
+                      const lockedTo = !isMine && !moving && !occupant ? owner : undefined;
 
                       return (
                         <td key={value} className="py-4 px-2 text-center">
                           <div className="flex flex-col items-center gap-1">
                             <button
-                              onClick={() => toggle(center.id, value)}
+                              onClick={() => toggle(center.id, day)}
                               title={
-                                isMine && !isTaking
-                                  ? `Remove ${staffName} from this slot`
-                                  : occupant && !isTaking
-                                  ? `Currently: ${occupant.staffName}. Click to reassign to ${staffName}`
-                                  : isTaking
-                                  ? `Will reassign from ${occupant?.staffName ?? '?'}. Click to cancel`
-                                  : `Assign ${staffName} here`
+                                isMine && !moving
+                                  ? `Remove ${staffName} from ${dayName}`
+                                  : isMine && moving
+                                  ? `Moving here from ${owner?.staffName ?? 'another staff member'}. Click to unassign ${dayName}`
+                                  : occupant && !moving
+                                  ? `${occupant.staffName} collects here on ${dayName}. Click to move this center to ${staffName}`
+                                  : occupant && moving
+                                  ? `${occupant.staffName}'s ${dayName} is removed on save. Click to give ${dayName} to ${staffName}`
+                                  : lockedTo
+                                  ? `Belongs to ${lockedTo.staffName}. Click to move this center to ${staffName}`
+                                  : `Assign ${staffName} on ${dayName}`
                               }
                               className={`w-10 h-10 rounded-xl flex items-center justify-center mx-auto transition-all text-xs font-bold ${
-                                isMine && !isTaking
+                                isMine && !moving
                                   ? 'bg-primary text-white shadow-sm ring-2 ring-primary/30'
-                                  : isTaking
+                                  : isMine && moving
                                   ? 'bg-primary/20 text-primary border-2 border-primary border-dashed'
-                                  : occupant
+                                  : occupant && !moving
                                   ? `${occupant.color} text-white opacity-80 hover:opacity-100`
+                                  : occupant && moving
+                                  ? 'bg-gray-100 text-gray-300 line-through hover:bg-primary/10 hover:text-primary'
+                                  : lockedTo
+                                  ? 'bg-gray-50 text-gray-300 border border-dashed border-gray-300 hover:bg-primary/10 hover:text-primary'
                                   : 'bg-gray-100 text-gray-300 hover:bg-primary/10 hover:text-primary'
                               }`}
                             >
-                              {isMine && !isTaking ? (
-                                <Check className="h-4 w-4" />
-                              ) : isTaking ? (
+                              {isMine ? (
                                 <Check className="h-4 w-4" />
                               ) : occupant ? (
                                 occupant.staffName.charAt(0).toUpperCase()
+                              ) : lockedTo ? (
+                                lockedTo.staffName.charAt(0).toUpperCase()
                               ) : null}
                             </button>
 
-                            {/* Staff name label under occupied cells */}
-                            {occupant && !isMine && (
-                              <span className={`text-[9px] font-medium leading-tight max-w-[52px] truncate ${isTaking ? 'text-primary' : 'text-gray-400'}`}>
-                                {isTaking ? '→ ' + staffName.split(' ')[0] : occupant.staffName.split(' ')[0]}
+                            {/* Who collects on this day (struck through when the center is moving here) */}
+                            {occupant && (
+                              <span className={`text-[9px] font-medium leading-tight max-w-[52px] truncate ${moving ? 'text-orange-400 line-through' : 'text-gray-400'}`}>
+                                {occupant.staffName.split(' ')[0]}
                               </span>
                             )}
-                            {isMine && !occupant && (
+                            {isMine && (
                               <span className="text-[9px] font-medium text-primary leading-tight max-w-[52px] truncate">
                                 {staffName.split(' ')[0]}
-                              </span>
-                            )}
-                            {isTaking && occupant && (
-                              <span className="text-[9px] font-medium text-orange-400 line-through leading-tight max-w-[52px] truncate">
-                                {occupant.staffName.split(' ')[0]}
                               </span>
                             )}
                           </div>
@@ -512,7 +544,8 @@ export default function StaffAssignmentsPage() {
                       );
                     })}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             )}
@@ -523,8 +556,13 @@ export default function StaffAssignmentsPage() {
             <div className="mx-5 mb-5 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 flex items-start gap-2">
               <UserCheck className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />
               <p className="text-xs text-orange-700">
-                <strong>{takingCount} slot{takingCount > 1 ? 's' : ''}</strong> will be reassigned from another staff member to <strong>{staffName}</strong> when you save.
-                The previous staff member will lose those assignments.
+                <strong>{takingCount} center{takingCount > 1 ? 's' : ''}</strong> will move to <strong>{staffName}</strong> when you save:{' '}
+                {Array.from(taking).map((cid) => {
+                  const c = centers.find((x) => x.id === cid);
+                  const o = centerOwners.get(cid);
+                  return c ? `${c.name}${o ? ` (from ${o.staffName})` : ''}` : null;
+                }).filter(Boolean).join(', ')}.
+                The previous staff member loses every day of those centers.
               </p>
             </div>
           )}
