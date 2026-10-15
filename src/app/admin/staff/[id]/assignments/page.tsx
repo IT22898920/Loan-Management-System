@@ -331,9 +331,15 @@ export default function StaffAssignmentsPage() {
                       {s.staffName.charAt(0).toUpperCase()}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-gray-800 truncate">
-                        {s.staffName}{isSelf && <span className="text-primary"> (You)</span>}
-                      </p>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <p className="text-xs font-semibold text-gray-800 truncate">{s.staffName}</p>
+                        {/* The staff whose assignment page is open — the admin is not this person */}
+                        {isSelf && (
+                          <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-px text-[9px] font-semibold text-primary">
+                            Viewing
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[10px] text-gray-500">{s.totalCenters} centers</p>
                     </div>
                   </div>
