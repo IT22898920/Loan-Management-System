@@ -2,7 +2,8 @@ import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { createClient } from '@/lib/supabase/server';
-import { ArrowLeft, AlertTriangle, CheckCircle2, MinusCircle, CreditCard, Clock, Camera } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, CheckCircle2, MinusCircle, CreditCard, Clock, Camera, CircleDashed } from 'lucide-react';
+import { paymentKind, markerLabel } from '@/lib/payment-kind';
 import { formatCurrency, formatDate, getTodayString } from '@/lib/utils';
 import { loanRef } from '@/lib/loan-ref';
 import MemberPhotoUpload from '@/components/MemberPhotoUpload';
@@ -206,19 +207,25 @@ export default async function StaffMemberProfilePage({ params }: { params: Promi
               const loan = p.loan as { principal: number | null } | null;
               const isToday = p.payment_date === today;
               const planLabel = loan?.principal ? `${Math.round(loan.principal / 1000)}K` : '—';
+              // NEW / holiday markers and 0 cells copied from the sheet are not payments
+              const kind = paymentKind(p);
 
               return (
                 <div key={p.id} className={`px-5 py-4 flex items-center justify-between ${isToday ? 'bg-blue-50/50' : ''}`}>
                   <div className="flex items-center gap-3">
                     <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                      p.is_not_paid ? 'bg-red-100' : p.shortfall > 0 ? 'bg-amber-100' : 'bg-green-100'
+                      kind === 'not_paid' ? 'bg-red-100' : kind === 'shortfall' ? 'bg-amber-100' : kind === 'paid' ? 'bg-green-100' : 'bg-gray-100'
                     }`}>
-                      {p.is_not_paid ? (
+                      {kind === 'not_paid' ? (
                         <MinusCircle className="h-4 w-4 text-red-600" />
-                      ) : p.shortfall > 0 ? (
+                      ) : kind === 'shortfall' ? (
                         <AlertTriangle className="h-4 w-4 text-amber-600" />
-                      ) : (
+                      ) : kind === 'paid' ? (
                         <CheckCircle2 className="h-4 w-4 text-green-600" />
+                      ) : kind === 'marker' ? (
+                        <CircleDashed className="h-4 w-4 text-gray-400" />
+                      ) : (
+                        <MinusCircle className="h-4 w-4 text-gray-400" />
                       )}
                     </div>
                     <div>
@@ -230,14 +237,18 @@ export default async function StaffMemberProfilePage({ params }: { params: Promi
                   </div>
 
                   <div className="text-right">
-                    {p.is_not_paid ? (
+                    {kind === 'not_paid' ? (
                       <span className="text-xs font-bold text-red-600 bg-red-50 px-2.5 py-1 rounded-full">N/P</span>
+                    ) : kind === 'marker' ? (
+                      <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">{markerLabel(p.marker)}</span>
+                    ) : kind === 'none' ? (
+                      <span className="text-xs text-gray-400">No payment</span>
                     ) : (
                       <>
-                        <p className={`font-semibold text-sm ${p.shortfall > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+                        <p className={`font-semibold text-sm ${kind === 'shortfall' ? 'text-amber-700' : 'text-green-700'}`}>
                           {formatCurrency(p.amount_paid)}
                         </p>
-                        {p.shortfall > 0 && (
+                        {kind === 'shortfall' && (
                           <p className="text-xs text-red-500">-{formatCurrency(p.shortfall)}</p>
                         )}
                       </>

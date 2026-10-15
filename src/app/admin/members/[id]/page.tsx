@@ -3,9 +3,10 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { createClient } from '@/lib/supabase/server';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, MapPin, CheckCircle2, AlertTriangle, CreditCard, Building2, Hash } from 'lucide-react';
+import { ArrowLeft, MapPin, CheckCircle2, AlertTriangle, CreditCard, Building2, Hash, MinusCircle, CircleDashed } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { loanRef } from '@/lib/loan-ref';
+import { paymentKind, markerLabel, isMoneyPayment } from '@/lib/payment-kind';
 import TransferMemberButton from '@/components/admin/TransferMemberButton';
 
 export default async function MemberDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -47,7 +48,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
     original_balance: number | null; cycle_no: number | null;
     loan_balance: number; weekly_payment: number;
     issued_date: string; status: string; is_first_loan: boolean;
-    payments: Array<{ id: string; amount_paid: number; is_not_paid: boolean; shortfall: number; payment_date: string; gps_lat: number | null; gps_lng: number | null; gps_address: string | null }>;
+    payments: Array<{ id: string; amount_paid: number; is_not_paid: boolean; shortfall: number; payment_date: string; marker: string | null; gps_lat: number | null; gps_lng: number | null; gps_address: string | null }>;
   }>;
 
   const activeLoans = loans.filter(l => l.status === 'active');
@@ -165,7 +166,8 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Payments Made</p>
-                <p className="font-bold text-gray-900 mt-0.5">{loan.payments?.length ?? 0}</p>
+                {/* weeks with money received — not NEW/holiday markers or 0 cells */}
+                <p className="font-bold text-gray-900 mt-0.5">{(loan.payments ?? []).filter(isMoneyPayment).length}</p>
               </div>
             </div>
 
@@ -176,7 +178,8 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                 (a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime()
               );
               const totalPaid = sorted.reduce((s, p) => s + (p.is_not_paid ? 0 : p.amount_paid), 0);
-              let running = loan.loan_balance + totalPaid; // initial balance before any payments
+              // L/B starts at the sheet's L.Balance (falls back for legacy rows)
+              let running = loan.original_balance ?? loan.loan_balance + totalPaid;
               const withBalance = sorted.map((p) => {
                 if (!p.is_not_paid) running -= p.amount_paid;
                 return { ...p, balanceAfter: running };
@@ -187,21 +190,31 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                 <div className="p-5">
                   <p className="text-sm font-semibold text-gray-700 mb-3">Payment History</p>
                   <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                    {display.map((p) => (
+                    {display.map((p) => {
+                      const kind = paymentKind(p);
+                      return (
                       <div key={p.id} className="bg-gray-50 rounded-xl px-3 py-2.5 space-y-1.5">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2">
                           <div className="flex items-center gap-2.5">
-                            {p.is_not_paid ? (
+                            {kind === 'not_paid' ? (
                               <div className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center shrink-0">
                                 <AlertTriangle className="h-3 w-3 text-red-500" />
                               </div>
-                            ) : p.shortfall > 0 ? (
+                            ) : kind === 'shortfall' ? (
                               <div className="w-6 h-6 rounded-full bg-yellow-100 flex items-center justify-center shrink-0">
                                 <AlertTriangle className="h-3 w-3 text-yellow-500" />
                               </div>
-                            ) : (
+                            ) : kind === 'paid' ? (
                               <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center shrink-0">
                                 <CheckCircle2 className="h-3 w-3 text-green-500" />
+                              </div>
+                            ) : kind === 'marker' ? (
+                              <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
+                                <CircleDashed className="h-3 w-3 text-gray-400" />
+                              </div>
+                            ) : (
+                              <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
+                                <MinusCircle className="h-3 w-3 text-gray-400" />
                               </div>
                             )}
                             <span className="text-xs text-muted-foreground">{formatDate(p.payment_date)}</span>
@@ -220,12 +233,19 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                             ) : p.gps_address ? (
                               <MapPin className="h-3 w-3 text-muted-foreground" />
                             ) : null}
-                            {p.is_not_paid ? (
+                            {kind === 'not_paid' ? (
                               <Badge variant="destructive" className="text-xs py-0">N/P</Badge>
+                            ) : kind === 'marker' ? (
+                              // sheet marker for a week without a collection (NEW = loan not started yet)
+                              <span className="text-[11px] font-semibold text-gray-500 bg-gray-200/70 rounded-md px-1.5 py-0.5" title="No collection this week (as marked in the sheet)">
+                                {markerLabel(p.marker)}
+                              </span>
+                            ) : kind === 'none' ? (
+                              <span className="text-xs text-gray-400">No payment</span>
                             ) : (
-                              <span className={`text-xs font-semibold ${p.shortfall > 0 ? 'text-yellow-700' : 'text-green-700'}`}>
+                              <span className={`text-xs font-semibold ${kind === 'shortfall' ? 'text-yellow-700' : 'text-green-700'}`}>
                                 {formatCurrency(p.amount_paid)}
-                                {p.shortfall > 0 && <span className="text-red-500 ml-1">(-{formatCurrency(p.shortfall)})</span>}
+                                {kind === 'shortfall' && <span className="text-red-500 ml-1">(-{formatCurrency(p.shortfall)})</span>}
                               </span>
                             )}
                             {/* Running balance after this payment */}
@@ -238,7 +258,8 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ i
                           <p className="text-[10px] text-muted-foreground pl-8 leading-tight">{p.gps_address}</p>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               );
