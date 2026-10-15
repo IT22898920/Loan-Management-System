@@ -7,6 +7,7 @@ import { formatCurrency, formatDate, getTodayString } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
 import { buildGoogleMapsUrl } from '@/lib/gps';
 import { generatePaymentsPDF, PaymentPDFRow } from '@/lib/pdf-report';
+import { paymentKind } from '@/lib/payment-kind';
 
 interface PaymentRow {
   id: string;
@@ -118,7 +119,7 @@ export default function PaymentsPage() {
     const headers = ['Date', 'Member Name', 'Member #', 'Center', 'Loan Principal (LKR)', 'Status', 'Amount Paid (LKR)', 'Shortfall (LKR)', 'Staff Name', 'GPS Address', 'GPS Lat', 'GPS Lng'];
     const body = rows.map((p) => [
       p.payment_date, q(p.member_name ?? ''), p.member_number ?? '', q(p.center_name ?? ''),
-      p.principal ?? '', p.is_not_paid ? 'Not Paid' : p.shortfall > 0 ? 'Shortfall' : 'Paid',
+      p.principal ?? '', p.is_not_paid ? 'Not Paid' : paymentKind(p) === 'none' ? 'No payment' : p.shortfall > 0 ? 'Shortfall' : 'Paid',
       p.is_not_paid ? 0 : p.amount_paid, p.shortfall ?? 0, q(p.staff_name ?? ''),
       q(p.gps_address ?? ''), p.gps_lat ?? '', p.gps_lng ?? '',
     ]);
@@ -277,6 +278,9 @@ export default function PaymentsPage() {
                         <td className="px-5 py-3.5">
                           {p.is_not_paid ? (
                             <span className="inline-flex items-center px-2.5 py-1 rounded-xl bg-red-50 text-red-700 text-xs font-semibold">N/P</span>
+                          ) : paymentKind(p) === 'none' ? (
+                            // a sheet week with no money (0 / NEW / holiday marker)
+                            <span className="text-sm text-gray-400">—</span>
                           ) : (
                             <span className={`font-semibold text-sm ${p.shortfall > 0 ? 'text-yellow-700' : 'text-green-700'}`}>
                               {formatCurrency(p.amount_paid)}
@@ -287,6 +291,8 @@ export default function PaymentsPage() {
                         <td className="px-5 py-3.5">
                           {p.is_not_paid ? (
                             <span className="flex items-center gap-1 text-red-500 text-xs"><AlertTriangle className="h-3 w-3" /> Not Paid</span>
+                          ) : paymentKind(p) === 'none' ? (
+                            <span className="text-gray-400 text-xs">No payment</span>
                           ) : p.shortfall > 0 ? (
                             <span className="flex items-center gap-1 text-yellow-600 text-xs"><AlertTriangle className="h-3 w-3" /> Shortfall</span>
                           ) : (
