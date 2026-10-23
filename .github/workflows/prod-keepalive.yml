@@ -1,0 +1,55 @@
+# Keeps the free-tier PRODUCTION Supabase project awake. It auto-pauses after
+# ~7 days without activity (it paused on 2026-10-12 and again before
+# 2026-10-23), which takes diriyalanka.lk down for the client and staff.
+# Pings the DB every 6 hours; if the project has paused anyway, restores it via
+# the Management API when the SUPABASE_PROD_PAT secret is configured.
+#
+# NOTE: GitHub disables schedules after ~60 days without repo activity —
+# this repo commits regularly, so that should never trigger.
+
+name: prod-keepalive
+
+on:
+  schedule:
+    - cron: '30 */6 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping production database (activity)
+        run: |
+          # Publishable anon key — already public in the client bundle by design.
+          CODE=$(curl -s -o /tmp/body -w "%{http_code}" --max-time 30 \
+            -H "apikey: sb_publishable_djDkmp2reEInlbl65_94fQ_gaPoMX_R" \
+            "https://uuzrslowxcubzkrxxnag.supabase.co/rest/v1/centers?select=id&limit=1")
+          echo "REST ping HTTP $CODE"
+          # 200/206 = alive (RLS may return empty for anon — the query still ran).
+          if [ "$CODE" = "200" ] || [ "$CODE" = "206" ]; then
+            echo "alive=true" >> "$GITHUB_ENV"
+          else
+            cat /tmp/body || true
+            echo "alive=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Restore if paused (needs SUPABASE_PROD_PAT secret)
+        if: env.alive == 'false'
+        env:
+          PAT: ${{ secrets.SUPABASE_PROD_PAT }}
+        run: |
+          if [ -z "$PAT" ]; then
+            echo "::error::Production appears paused and SUPABASE_PROD_PAT is not set — restore manually or add the secret."
+            exit 1
+          fi
+          STATUS=$(curl -s --max-time 30 -H "Authorization: Bearer $PAT" \
+            "https://api.supabase.com/v1/projects/uuzrslowxcubzkrxxnag" | \
+            python3 -c "import json,sys;print(json.load(sys.stdin).get('status',''))")
+          echo "project status: $STATUS"
+          if [ "$STATUS" = "INACTIVE" ]; then
+            curl -s --max-time 60 -X POST -H "Authorization: Bearer $PAT" \
+              "https://api.supabase.com/v1/projects/uuzrslowxcubzkrxxnag/restore" \
+              -w "restore HTTP %{http_code}\n" -o /dev/null
+            echo "Restore triggered — production will be back in a few minutes."
+          fi
